@@ -651,27 +651,27 @@
     const rows = words.map((word) => {
       const accuracy = getAccuracy(word);
       const actions = mode === "mistakes"
-        ? `<button class="btn small ghost" data-action="reset" data-id="${escapeHtml(word.id)}">回数をリセット</button>`
+        ? `<button class="btn small ghost" type="button" data-action="reset" data-id="${escapeHtml(word.id)}">回数をリセット</button>`
         : `
-          <button class="btn small ghost" data-action="edit" data-id="${escapeHtml(word.id)}">編集</button>
-          <button class="btn small danger" data-action="delete" data-id="${escapeHtml(word.id)}">削除</button>
+          <button class="btn small ghost" type="button" data-action="edit" data-id="${escapeHtml(word.id)}">編集</button>
+          <button class="btn small danger" type="button" data-action="delete" data-id="${escapeHtml(word.id)}">削除</button>
         `;
 
       return `
         <tr>
-          <td><div class="english-with-audio"><strong>${escapeHtml(word.english)}</strong><button class="speak-button" type="button" data-speak="${escapeHtml(word.english)}" aria-label="${escapeHtml(word.english)}の発音を聞く">🔊</button></div></td>
-          <td>${escapeHtml(word.japanese)}</td>
-          <td class="number">${word.correct}</td>
-          <td class="number mistake-count">${word.mistakes}</td>
-          <td class="number rate">${accuracy === null ? "—" : `${accuracy}%`}</td>
-          <td><div class="button-row" style="margin:0">${actions}</div></td>
+          <td class="word-main-cell" data-label="英語"><div class="english-with-audio"><strong>${escapeHtml(word.english)}</strong><button class="speak-button" type="button" data-speak="${escapeHtml(word.english)}" aria-label="${escapeHtml(word.english)}の発音を聞く">🔊</button></div></td>
+          <td data-label="日本語訳">${escapeHtml(word.japanese)}</td>
+          <td class="number" data-label="正解">${word.correct}</td>
+          <td class="number mistake-count" data-label="誤答">${word.mistakes}</td>
+          <td class="number rate" data-label="正答率">${accuracy === null ? "—" : `${accuracy}%`}</td>
+          <td class="word-actions-cell" data-label="操作"><div class="word-actions">${actions}</div></td>
         </tr>
       `;
     }).join("");
 
     return `
       <div class="table-wrap">
-        <table>
+        <table class="${mode === "list" ? "word-management-table" : ""}">
           <thead>
             <tr>
               <th>英語</th>
@@ -1471,10 +1471,11 @@
       if (!word) return;
 
       if (button.dataset.action === "delete") {
-        if (!confirm(`「${word.english}」を削除するか？`)) return;
+        if (!confirm(`「${word.english}」を削除するか？\n正誤記録と復習予定も削除される。`)) return;
         state.words = state.words.filter((item) => item.id !== word.id);
         resetQuizSession();
         saveData();
+        showNotice($("#listNotice"), `「${word.english}」を削除した。`, "success");
       }
       if (button.dataset.action === "edit") {
         $("#editId").value = word.id;
@@ -1504,10 +1505,12 @@
       const english = $("#editEnglish").value.trim();
       const japanese = $("#editJapanese").value.trim();
       if (!english || !japanese) return;
+      const previousEnglish = word.english;
       word.english = english;
       word.japanese = japanese;
       saveData();
       $("#editDialog").close();
+      showNotice($("#listNotice"), `「${previousEnglish}」を更新した。`, "success");
     });
     $("#cancelEditBtn").addEventListener("click", () => $("#editDialog").close());
 

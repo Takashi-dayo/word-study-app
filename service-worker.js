@@ -1,8 +1,8 @@
-const CACHE_NAME = "word-study-app-shell-v3-8";
+const CACHE_NAME = "word-study-app-shell-v3-9";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./app.js?v=3.8",
+  "./app.js?v=3.9",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png"

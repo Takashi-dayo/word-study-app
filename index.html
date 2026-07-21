@@ -542,6 +542,98 @@
       border-radius: 12px;
     }
 
+    .word-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .word-actions .btn {
+      min-width: 72px;
+    }
+
+    .word-list-help {
+      margin-bottom: 12px;
+    }
+
+    @media (max-width: 760px) {
+      .word-management-table,
+      .word-management-table tbody,
+      .word-management-table tr,
+      .word-management-table td {
+        display: block;
+        width: 100%;
+      }
+
+      .word-management-table {
+        min-width: 0;
+      }
+
+      .word-management-table thead {
+        display: none;
+      }
+
+      .word-management-table tbody {
+        display: grid;
+        gap: 12px;
+        padding: 10px;
+      }
+
+      .word-management-table tr {
+        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: 13px;
+        background: var(--panel);
+      }
+
+      .word-management-table td {
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
+        gap: 10px;
+        padding: 7px 0;
+        border: 0;
+        text-align: left;
+      }
+
+      .word-management-table td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 750;
+      }
+
+      .word-management-table .word-main-cell {
+        display: block;
+        padding-top: 0;
+        font-size: 1.3rem;
+      }
+
+      .word-management-table .word-main-cell::before {
+        display: none;
+      }
+
+      .word-management-table .word-actions-cell {
+        display: block;
+        margin-top: 7px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
+
+      .word-management-table .word-actions-cell::before {
+        display: none;
+      }
+
+      .word-management-table .word-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .word-management-table .word-actions .btn {
+        width: 100%;
+        padding: 10px 12px;
+      }
+    }
+
     table {
       width: 100%;
       min-width: 720px;
@@ -967,6 +1059,7 @@
 
     <section class="panel" id="panel-list">
       <h2>全単語一覧</h2>
+      <p class="muted word-list-help">各単語の「編集」から英語・日本語訳を変更できる。「削除」は学習記録と復習予定を含めてその単語を削除する。</p>
       <div class="table-tools">
         <input id="searchInput" type="search" placeholder="英語・日本語で検索" />
         <select id="listSort" style="max-width:230px">
@@ -977,6 +1070,7 @@
         </select>
       </div>
       <div id="wordTable"></div>
+      <div id="listNotice" aria-live="polite"></div>
     </section>
 
     <section class="panel" id="panel-data">
@@ -1046,6 +1140,6 @@
       </div>
     </form>
   </dialog>
-  <script src="./app.js?v=3.8" defer></script>
+  <script src="./app.js?v=3.9" defer></script>
 </body>
 </html>
