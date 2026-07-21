@@ -429,31 +429,8 @@
       font-size: 0.8rem;
     }
 
-    .ocr-grid {
-      display: grid;
-      grid-template-columns: minmax(220px, 0.85fr) minmax(280px, 1.15fr);
-      gap: 16px;
-      align-items: start;
-    }
 
-    .image-preview {
-      min-height: 220px;
-      display: grid;
-      place-items: center;
-      overflow: hidden;
-      border: 1px dashed var(--border);
-      border-radius: 12px;
-      background: var(--panel-2);
-      color: var(--muted);
-      text-align: center;
-    }
 
-    .image-preview img {
-      display: block;
-      width: 100%;
-      max-height: 420px;
-      object-fit: contain;
-    }
 
     progress {
       width: 100%;
@@ -489,7 +466,7 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .grid-2, .quiz-toolbar, .ocr-grid {
+      .grid-2, .quiz-toolbar {
         grid-template-columns: 1fr;
       }
 
@@ -577,7 +554,7 @@
     <header>
       <div>
         <h1>単語学習アプリ</h1>
-        <p class="subtitle">自作単語帳・OCR登録・間隔復習。学習データは端末内だけに保存</p>
+        <p class="subtitle">自作単語帳・AI読取登録・間隔復習。学習データは端末内だけに保存</p>
       </div>
       <div class="header-actions">
         <button class="btn ghost" id="installBtn" hidden>アプリをインストール</button>
@@ -669,28 +646,16 @@
 
       <hr style="border:0;border-top:1px solid var(--border);margin:28px 0">
 
-      <h3>画像・手書きから読み取る</h3>
-      <p class="muted">画像内の文字をブラウザ上でOCRする。英字の活字体に近い手書きは比較的読み取れるが、日本語の崩し字や罫線が多い画像は誤認識しやすい。OCR後に内容を修正してから登録する。</p>
-      <div class="ocr-grid">
-        <div>
-          <label for="ocrImageInput">単語リストの画像</label>
-          <input id="ocrImageInput" type="file" accept="image/*" capture="environment" />
-          <div class="image-preview" id="ocrPreview">画像を選択するとここに表示する。</div>
+      <h3>ノートを読み取らせる方法</h3>
+      <div class="privacy-box" style="margin-top:0">
+        <p>ChatGPTなどAIに、下の文章を入力し、ノートの画像と一緒に送信する。</p>
+        <label for="aiReadPrompt">AIへ送る文章</label>
+        <textarea id="aiReadPrompt" readonly style="min-height:150px">この画像は英単語とそれに対応する日本語が書かれている。  英語と日本語を読み取れ。 1行につき「英語[TAB]日本語」 という形で出力しろ  また、読み取ったことのみ出力しろ  その他一切何も絶対に出力するな</textarea>
+        <div class="button-row">
+          <button class="btn primary" type="button" id="copyAiPromptBtn">文章をコピー</button>
         </div>
-        <div>
-          <label for="ocrLanguage">OCR言語</label>
-          <select id="ocrLanguage">
-            <option value="eng+jpn">英語＋日本語</option>
-            <option value="eng">英語のみ</option>
-            <option value="jpn">日本語のみ</option>
-          </select>
-          <div class="button-row">
-            <button class="btn primary" type="button" id="ocrRunBtn">画像を読み取る</button>
-          </div>
-          <progress id="ocrProgress" max="1" value="0" hidden></progress>
-          <div id="ocrNotice" aria-live="polite"></div>
-          <p class="muted">読み取り結果は上の「複数行をまとめて登録」欄へ入る。「英語　日本語」のように左右へ書かれた行は自動でタブ区切りへ変換を試みる。</p>
-        </div>
+        <div id="aiPromptNotice" aria-live="polite"></div>
+        <p class="muted">AIが出力した内容を、上の「複数行をまとめて登録」欄へそのまま貼り付け、「まとめて追加」を押す。</p>
       </div>
     </section>
 
@@ -842,7 +807,7 @@
       <div class="privacy-box">
         <h3>保存上の注意</h3>
         <p>データは現在開いているブラウザと、このGitHub Pagesの正確なURLに紐づく。ブラウザ変更、サイトURL変更、サイトデータ削除、端末初期化・故障時はJSONバックアップから復元する必要がある。</p>
-        <p class="muted">OCRは処理エンジンと言語データの取得時に通信を使う場合があるが、選択した画像と読み取り文字をオンラインDBへ保存しない。</p>
+        <p class="muted">ノート画像はこのアプリへ送信しない。外部AIへ画像を送る場合、そのAIサービスのデータ取扱条件が適用される。</p>
       </div>
     </section>
   </main>

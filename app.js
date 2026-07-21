@@ -807,75 +807,6 @@
     }
   }
 
-  function loadTesseract() {
-    if (window.Tesseract) return Promise.resolve(window.Tesseract);
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
-      script.crossOrigin = "anonymous";
-      script.onload = () => resolve(window.Tesseract);
-      script.onerror = () => reject(new Error("OCRライブラリを読み込めない"));
-      document.head.appendChild(script);
-    });
-  }
-
-  function formatOcrLines(text) {
-    return String(text)
-      .split(/\r?\n/)
-      .map((rawLine) => rawLine.trim())
-      .filter(Boolean)
-      .map((line) => {
-        if (/\t|[,，]/.test(line)) return line;
-        const japaneseIndex = line.search(/[ぁ-んァ-ヶ一-龯々ー]/);
-        if (japaneseIndex > 0) {
-          const english = line.slice(0, japaneseIndex).trim().replace(/\s{2,}/g, " ");
-          const japanese = line.slice(japaneseIndex).trim();
-          return `${english}\t${japanese}`;
-        }
-        const spaced = line.split(/\s{2,}/).filter(Boolean);
-        if (spaced.length >= 2) return `${spaced[0]}\t${spaced.slice(1).join(" ")}`;
-        return line;
-      })
-      .join("\n");
-  }
-
-  async function runOcr() {
-    const file = $("#ocrImageInput").files?.[0];
-    if (!file) {
-      showNotice($("#ocrNotice"), "先に画像を選択する必要がある。", "error");
-      return;
-    }
-
-    $("#ocrRunBtn").disabled = true;
-    $("#ocrProgress").hidden = false;
-    $("#ocrProgress").value = 0;
-    showNotice($("#ocrNotice"), "OCRエンジンを準備している。初回はインターネット接続が必要だが、画像は端末内で処理する。");
-
-    try {
-      const Tesseract = await loadTesseract();
-      const result = await Tesseract.recognize(file, $("#ocrLanguage").value, {
-        logger: (message) => {
-          if (typeof message.progress === "number") $("#ocrProgress").value = message.progress;
-          if (message.status) {
-            const percent = typeof message.progress === "number" ? ` ${Math.round(message.progress * 100)}%` : "";
-            showNotice($("#ocrNotice"), `処理中: ${message.status}${percent}`);
-          }
-        }
-      });
-      const formatted = formatOcrLines(result?.data?.text || "");
-      if (!formatted.trim()) throw new Error("文字を検出できない");
-      $("#bulkInput").value = formatted;
-      showNotice($("#ocrNotice"), "読み取り結果を一括登録欄へ入れた。誤認識を修正してから登録する必要がある。", "success");
-      $("#bulkInput").scrollIntoView({ behavior: "smooth", block: "center" });
-    } catch (error) {
-      console.error(error);
-      showNotice($("#ocrNotice"), "OCRに失敗した。通信状態、画像の明るさ、文字の大きさを確認する必要がある。", "error");
-    } finally {
-      $("#ocrRunBtn").disabled = false;
-      $("#ocrProgress").hidden = true;
-    }
-  }
-
   function parseBulkLine(line) {
     const trimmed = line.trim();
     if (!trimmed) return null;
@@ -1061,18 +992,23 @@
       if (added) $("#bulkInput").value = "";
     });
 
-    $("#ocrImageInput").addEventListener("change", (event) => {
-      const file = event.target.files?.[0];
-      const preview = $("#ocrPreview");
-      if (!file) {
-        preview.textContent = "画像を選択するとここに表示する。";
-        return;
+
+    $("#copyAiPromptBtn").addEventListener("click", async () => {
+      const promptText = $("#aiReadPrompt").value;
+      try {
+        await navigator.clipboard.writeText(promptText);
+        showNotice($("#aiPromptNotice"), "文章をコピーした。AIのチャット画面へ貼り付け、ノート画像と一緒に送信する。", "success");
+      } catch (error) {
+        $("#aiReadPrompt").focus();
+        $("#aiReadPrompt").select();
+        const copied = document.execCommand("copy");
+        showNotice(
+          $("#aiPromptNotice"),
+          copied ? "文章をコピーした。" : "自動コピーできない。文章を長押しまたは選択してコピーする必要がある。",
+          copied ? "success" : "error"
+        );
       }
-      const url = URL.createObjectURL(file);
-      preview.innerHTML = `<img src="${url}" alt="OCR対象画像のプレビュー">`;
-      preview.querySelector("img").addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
     });
-    $("#ocrRunBtn").addEventListener("click", runOcr);
 
     $("#startTodayBtn").addEventListener("click", () => {
       $("#quizRange").value = "today";
