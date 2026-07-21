@@ -24,7 +24,9 @@
     filteredQuizIds: [],
     quizSessionIds: [],
     quizSessionIndex: 0,
-    quizSessionComplete: false
+    quizSessionComplete: false,
+    manualJudgePending: false,
+    quizRangeOverride: null
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -233,18 +235,107 @@
 
   function splitAnswers(value) {
     return String(value)
-      .split(/[、,，\/／;；|｜]/)
+      .split(/[、,，\/／;；|｜\n]/)
       .map((part) => part.trim())
       .filter(Boolean);
   }
 
-  function isCorrectAnswer(input, expected, strict) {
+  function katakanaToHiragana(value) {
+    return [...value].map((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 0x30a1 && code <= 0x30f6
+        ? String.fromCharCode(code - 0x60)
+        : character;
+    }).join("");
+  }
+
+  function normalizeJapanese(value) {
+    return katakanaToHiragana(String(value).normalize("NFKC").toLowerCase())
+      .replace(/[（(［\[【].*?[）)］\]】]/g, "")
+      .replace(/[「」『』〈〉《》“”"'`]/g, "")
+      .replace(/[。、，,.!！?？・:：;；…〜~～\s]/g, "")
+      .replace(/^[-ー]+|[-ー]+$/g, "");
+  }
+
+  function japaneseForms(value) {
+    const base = normalizeJapanese(value);
+    const forms = new Set([base]);
+    if (!base) return forms;
+
+    forms.add(base.replace(/^[をにがはへでと]+/, ""));
+    forms.add(base.replace(/をする$/, "する"));
+
+    const removableSuffixes = [
+      "する", "します", "しました", "した", "して",
+      "される", "された", "させる", "である", "です", "だ",
+      "こと", "もの"
+    ];
+    for (const current of [...forms]) {
+      for (const suffix of removableSuffixes) {
+        if (current.endsWith(suffix) && [...current].length > [...suffix].length + 1) {
+          forms.add(current.slice(0, -suffix.length));
+        }
+      }
+    }
+    return new Set([...forms].filter(Boolean));
+  }
+
+  function levenshteinDistance(left, right) {
+    const a = [...left];
+    const b = [...right];
+    const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+
+    for (let i = 1; i <= a.length; i++) {
+      const current = [i];
+      for (let j = 1; j <= b.length; j++) {
+        current[j] = Math.min(
+          current[j - 1] + 1,
+          previous[j] + 1,
+          previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+        );
+      }
+      previous.splice(0, previous.length, ...current);
+    }
+    return previous[b.length];
+  }
+
+  function isFlexibleJapaneseMatch(input, answer) {
+    const inputForms = japaneseForms(input);
+    const answerForms = japaneseForms(answer);
+
+    for (const inputForm of inputForms) {
+      for (const answerForm of answerForms) {
+        if (inputForm === answerForm) return true;
+
+        const inputLength = [...inputForm].length;
+        const answerLength = [...answerForm].length;
+        const shorterLength = Math.min(inputLength, answerLength);
+        const longerLength = Math.max(inputLength, answerLength);
+        if (shorterLength >= 3 && shorterLength / longerLength >= 0.6 &&
+            (inputForm.includes(answerForm) || answerForm.includes(inputForm))) {
+          return true;
+        }
+
+        const allowedDistance = longerLength >= 8 ? 2 : longerLength >= 4 ? 1 : 0;
+        if (allowedDistance && levenshteinDistance(inputForm, answerForm) <= allowedDistance) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function isCorrectAnswer(input, expected, strict, direction = "en-ja") {
     const answers = splitAnswers(expected);
     if (!answers.length) answers.push(expected);
 
     if (strict) {
       const normalizedInput = normalize(input);
       return answers.some((answer) => normalizedInput === normalize(answer));
+    }
+
+    if (direction === "en-ja") {
+      return answers.some((answer) => isFlexibleJapaneseMatch(input, answer));
     }
 
     const normalizedInput = normalizeLoose(input);
@@ -318,6 +409,10 @@
   }
 
   function switchTab(tabName) {
+    if (tabName === "quiz" && state.quizRangeOverride === "today") {
+      const todayTabActive = $(".tab.active")?.dataset.tab === "today";
+      if (!todayTabActive) state.quizRangeOverride = null;
+    }
     $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === tabName));
     $$(".panel").forEach((panel) => panel.classList.toggle("active", panel.id === `panel-${tabName}`));
 
@@ -464,7 +559,11 @@
       </div>`;
   }
 
-  function getFilteredQuizWords(range = $("#quizRange").value) {
+  function currentQuizRange() {
+    return state.quizRangeOverride || $("#quizRange").value;
+  }
+
+  function getFilteredQuizWords(range = currentQuizRange()) {
     let words = [...state.words];
     if (range === "mistakes") words = words.filter((word) => word.mistakes > 0);
     if (range === "today") words = words.filter(isDueToday);
@@ -472,15 +571,14 @@
     return words;
   }
 
-  function usesQuestionLimit(range = $("#quizRange").value) {
+  function usesQuestionLimit(range = currentQuizRange()) {
     return range === "all" || range === "mistakes";
   }
 
   function updateQuizCountControl() {
-    const range = $("#quizRange").value;
+    const range = currentQuizRange();
     const group = $("#quizCountGroup");
     const input = $("#quizCount");
-    const hint = $("#quizCountHint");
     const limited = usesQuestionLimit(range);
 
     group.hidden = !limited;
@@ -495,9 +593,6 @@
     if (available > 0) requested = Math.min(requested, available);
     input.value = String(requested);
 
-    hint.textContent = available > 0
-      ? `1〜${available}問から指定`
-      : "出題できる単語がない";
   }
 
   function requestedQuestionCount(available) {
@@ -510,7 +605,7 @@
   }
 
   function getQuizPool() {
-    const range = $("#quizRange").value;
+    const range = currentQuizRange();
     let words = getFilteredQuizWords(range);
 
     const order = $("#quizOrder").value;
@@ -538,6 +633,7 @@
     state.quizSessionIndex = 0;
     state.quizSessionComplete = false;
     state.answered = false;
+    state.manualJudgePending = false;
   }
 
   function showQuizEmpty(message, action = "add") {
@@ -601,6 +697,7 @@
     state.currentQuizWordId = null;
     state.quizSessionComplete = true;
     state.answered = false;
+    state.manualJudgePending = false;
     showQuizEmpty(`${state.quizSessionIds.length}問が終了した。`, "restart");
   }
 
@@ -655,28 +752,101 @@
     $("#checkBtn").hidden = false;
     $("#showAnswerBtn").hidden = false;
     $("#skipBtn").hidden = false;
-    $("#nextBtn").hidden = true;
-    $("#nextBtn").textContent = "次の問題";
+    $("#quizNextRow").hidden = true;
+    $("#nextBtn").textContent = "次の問題へ";
+    $("#nextBtn").className = "btn next-small";
+    $("#manualJudgeRow").hidden = true;
+    $("#markCorrectBtn").disabled = false;
+    $("#markWrongBtn").disabled = false;
     $("#feedback").className = "feedback";
     $("#feedback").textContent = "回答を入力して「答え合わせ」を押す。";
     state.answered = false;
+    state.manualJudgePending = false;
     setTimeout(() => $("#answerInput").focus(), 0);
+  }
+
+  function correctAnswerMarkup(expected, label = "正しい答え") {
+    return `<div class="correct-answer-block"><span class="correct-answer-label">${escapeHtml(label)}</span><span class="correct-answer-value">${escapeHtml(expected)}</span></div>`;
+  }
+
+  function updateNextActionButton() {
+    const hasNext = hasNextSessionWord();
+    const button = $("#nextBtn");
+    button.textContent = hasNext ? "次の問題へ" : "終了";
+    button.className = hasNext
+      ? "btn next-small"
+      : "btn next-small finish-action";
   }
 
   function finishAnswer(result, message) {
     state.answered = true;
+    state.manualJudgePending = false;
     $("#answerInput").disabled = true;
     $("#checkBtn").hidden = true;
     $("#showAnswerBtn").hidden = true;
     $("#skipBtn").hidden = true;
-    $("#nextBtn").hidden = false;
-    $("#nextBtn").textContent = hasNextSessionWord() ? "次の問題" : "終了";
+    $("#manualJudgeRow").hidden = true;
+    $("#quizNextRow").hidden = false;
+    updateNextActionButton();
     $("#feedback").className = `feedback ${result}`;
     $("#feedback").innerHTML = message;
     $("#nextBtn").focus();
   }
 
+  function recordCorrectAnswer(word, expected, message = "正解。") {
+    word.correct += 1;
+    if (currentQuizRange() === "today") completeDueReviews(word);
+    saveData();
+    finishAnswer("correct", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected)}`);
+  }
+
+  function recordWrongAnswer(word, expected, message = "不正解。") {
+    word.mistakes += 1;
+    if (currentQuizRange() === "today") completeDueReviews(word);
+    scheduleReview(word);
+    saveData();
+    finishAnswer("wrong", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected)}`);
+  }
+
+  function requestManualJudgement(input, expected) {
+    state.manualJudgePending = true;
+    $("#answerInput").disabled = true;
+    $("#checkBtn").hidden = true;
+    $("#showAnswerBtn").hidden = true;
+    $("#skipBtn").hidden = true;
+    $("#quizNextRow").hidden = true;
+    $("#manualJudgeRow").hidden = false;
+    $("#markCorrectBtn").disabled = false;
+    $("#markWrongBtn").disabled = false;
+    $("#feedback").className = "feedback";
+    $("#feedback").innerHTML =
+      `<strong>自動では判定できない。</strong><br>` +
+      `入力: ${escapeHtml(input)}` +
+      correctAnswerMarkup(expected, "登録された答え") +
+      `<span class="muted">意味が合っている場合は「正解として扱う」を押す。</span>`;
+    $("#markCorrectBtn").focus();
+  }
+
+  function resolveManualJudgement(isCorrect) {
+    if (!state.manualJudgePending) return;
+
+    const word = state.words.find((item) => item.id === state.currentQuizWordId);
+    if (!word) return;
+
+    state.manualJudgePending = false;
+    $("#markCorrectBtn").disabled = true;
+    $("#markWrongBtn").disabled = true;
+
+    const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
+    if (isCorrect) {
+      recordCorrectAnswer(word, expected, "正解として記録した。");
+    } else {
+      recordWrongAnswer(word, expected);
+    }
+  }
+
   function checkAnswer() {
+    if (state.manualJudgePending) return;
     if (state.answered) return chooseNextQuestion();
     const word = state.words.find((item) => item.id === state.currentQuizWordId);
     if (!word) return;
@@ -689,18 +859,14 @@
     }
 
     const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
-    const correct = isCorrectAnswer(input, expected, $("#strictAnswer").checked);
+    const strict = $("#strictAnswer").checked;
+    const correct = isCorrectAnswer(input, expected, strict, state.currentDirection);
     if (correct) {
-      word.correct += 1;
-      if ($("#quizRange").value === "today") completeDueReviews(word);
-      saveData();
-      finishAnswer("correct", `<strong>正解。</strong><br>答え: ${escapeHtml(expected)}`);
+      recordCorrectAnswer(word, expected);
+    } else if (state.currentDirection === "en-ja" && !strict) {
+      requestManualJudgement(input, expected);
     } else {
-      word.mistakes += 1;
-      if ($("#quizRange").value === "today") completeDueReviews(word);
-      scheduleReview(word);
-      saveData();
-      finishAnswer("wrong", `<strong>不正解。</strong><br>正しい答え: ${escapeHtml(expected)}`);
+      recordWrongAnswer(word, expected);
     }
   }
 
@@ -710,10 +876,10 @@
     if (!word) return;
     const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
     word.mistakes += 1;
-    if ($("#quizRange").value === "today") completeDueReviews(word);
+    if (currentQuizRange() === "today") completeDueReviews(word);
     scheduleReview(word);
     saveData();
-    finishAnswer("wrong", `<strong>答えを表示したため誤答として記録。</strong><br>答え: ${escapeHtml(expected)}`);
+    finishAnswer("wrong", `<strong>答えを表示したため誤答として記録。</strong>${correctAnswerMarkup(expected)}`);
   }
 
   function skipQuestion() {
@@ -1011,7 +1177,7 @@
     });
 
     $("#startTodayBtn").addEventListener("click", () => {
-      $("#quizRange").value = "today";
+      state.quizRangeOverride = "today";
       resetQuizSession();
       switchTab("quiz");
       prepareQuiz(true);
@@ -1031,6 +1197,7 @@
       prepareQuiz(true);
     });
     $("#quizRange").addEventListener("change", () => {
+      state.quizRangeOverride = null;
       resetQuizSession();
       updateQuizCountControl();
       prepareQuiz(true);
@@ -1045,12 +1212,19 @@
       prepareQuiz(true);
     });
     $("#checkBtn").addEventListener("click", checkAnswer);
+    $("#manualJudgeRow").addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button || button.disabled) return;
+      if (button.id === "markCorrectBtn") resolveManualJudgement(true);
+      if (button.id === "markWrongBtn") resolveManualJudgement(false);
+    });
     $("#showAnswerBtn").addEventListener("click", revealAnswer);
     $("#skipBtn").addEventListener("click", skipQuestion);
     $("#nextBtn").addEventListener("click", () => chooseNextQuestion());
     $("#answerInput").addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
+      if (state.manualJudgePending) return;
       state.answered ? chooseNextQuestion() : checkAnswer();
     });
 

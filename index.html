@@ -242,6 +242,88 @@
       font-size: 0.84rem;
     }
 
+    .manual-judge-panel {
+      margin-top: 18px;
+      padding: 16px;
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+
+    .manual-judge-title {
+      margin-bottom: 11px;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .manual-judge-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .btn.approve {
+      min-height: 48px;
+      border-color: color-mix(in srgb, var(--success) 55%, var(--border));
+      background: color-mix(in srgb, var(--success) 14%, var(--panel));
+      color: var(--success);
+    }
+
+    .btn.approve:hover {
+      background: color-mix(in srgb, var(--success) 22%, var(--panel));
+    }
+
+    .btn.reject {
+      min-height: 48px;
+      border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+      background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+      color: var(--danger);
+    }
+
+    .btn.reject:hover {
+      background: color-mix(in srgb, var(--danger) 17%, var(--panel));
+    }
+
+    .quiz-next-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .btn.next-small {
+      min-width: 0;
+      padding: 6px 11px;
+      border-color: var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .btn.next-small:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .btn.next-small.finish-action {
+      border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+      color: var(--danger);
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (max-width: 520px) {
+      .manual-judge-actions {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .notice {
       margin-top: 14px;
       padding: 10px 12px;
@@ -732,11 +814,16 @@
                 <button class="btn ghost" type="button" id="showAnswerBtn">答えを見る</button>
               </div>
               <div class="feedback" id="feedback" aria-live="polite">回答を入力して「答え合わせ」を押す。</div>
-              <div class="button-row" id="manualJudgeRow" hidden>
-                <button class="btn primary" type="button" id="markCorrectBtn">正解として扱う</button>
-                <button class="btn danger" type="button" id="markWrongBtn">不正解として記録</button>
+              <div class="manual-judge-panel" id="manualJudgeRow" hidden>
+                <div class="manual-judge-title">この回答をどう記録するか選択</div>
+                <div class="manual-judge-actions">
+                  <button class="btn approve" type="button" id="markCorrectBtn">正解として扱う</button>
+                  <button class="btn reject" type="button" id="markWrongBtn">不正解として記録</button>
+                </div>
               </div>
-              <button class="btn primary" type="button" id="nextBtn" hidden>次の問題</button>
+              <div class="quiz-next-row" id="quizNextRow" hidden>
+                <button class="btn next-small" type="button" id="nextBtn">次の問題へ</button>
+              </div>
             </div>
           </div>
         </div>
@@ -849,6 +936,6 @@
       </div>
     </form>
   </dialog>
-  <script src="./app.js" defer></script>
+  <script src="./app.js?v=3.7" defer></script>
 </body>
 </html>
