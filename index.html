@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="description" content="端末内保存で使える英単語学習PWA" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <title>単語学習アプリ</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --panel-2: #f8fafc;
+      --text: #172033;
+      --muted: #667085;
+      --border: #d8dee8;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+      --success: #15803d;
+      --warning: #b45309;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      --radius: 16px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c111b;
+        --panel: #151c28;
+        --panel-2: #101722;
+        --text: #e8edf5;
+        --muted: #9aa7b8;
+        --border: #2a3545;
+        --primary: #5b8cff;
+        --primary-hover: #7aa2ff;
+        --danger: #ef4444;
+        --danger-hover: #f87171;
+        --success: #4ade80;
+        --warning: #fbbf24;
+        --shadow: 0 12px 35px rgba(0, 0, 0, 0.28);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 10% -10%, rgba(37, 99, 235, 0.12), transparent 35%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", sans-serif;
+      line-height: 1.6;
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      width: min(1120px, calc(100% - 24px));
+      margin: 0 auto;
+      padding: 28px 0 48px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      margin-bottom: 4px;
+      font-size: clamp(1.65rem, 4vw, 2.35rem);
+      line-height: 1.2;
+    }
+
+    .subtitle, .muted {
+      color: var(--muted);
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(110px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .stat-card, .panel {
+      background: color-mix(in srgb, var(--panel) 94%, transparent);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+
+    .stat-card {
+      padding: 14px 16px;
+      border-radius: 14px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .stat-value {
+      margin-top: 3px;
+      font-size: 1.55rem;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 5px;
+      margin-bottom: 18px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-2);
+    }
+
+    .tab {
+      flex: 1 0 auto;
+      min-width: 120px;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .tab.active {
+      background: var(--panel);
+      color: var(--primary);
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    }
+
+    .panel {
+      display: none;
+      padding: 22px;
+      border-radius: var(--radius);
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 12px;
+      background: var(--panel-2);
+      color: var(--text);
+      outline: none;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+    }
+
+    textarea {
+      min-height: 170px;
+      resize: vertical;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-top: 16px;
+    }
+
+    .btn {
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 10px 15px;
+      font-weight: 750;
+      background: var(--panel-2);
+      color: var(--text);
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn.primary:hover { background: var(--primary-hover); }
+
+    .btn.danger {
+      background: transparent;
+      border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+      color: var(--danger);
+    }
+
+    .btn.danger:hover {
+      background: color-mix(in srgb, var(--danger) 10%, transparent);
+    }
+
+    .btn.ghost {
+      border-color: var(--border);
+      background: transparent;
+    }
+
+    .btn.small {
+      padding: 6px 10px;
+      font-size: 0.84rem;
+    }
+
+    .notice {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-left: 4px solid var(--primary);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--primary) 9%, transparent);
+      color: var(--text);
+    }
+
+    .notice.success { border-color: var(--success); }
+    .notice.error { border-color: var(--danger); }
+
+    .quiz-shell {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .quiz-toolbar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .quiz-count-hint {
+      min-height: 1.4em;
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .quiz-progress {
+      color: var(--muted);
+      font-size: 0.86rem;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .quiz-card {
+      min-height: 340px;
+      display: grid;
+      align-content: center;
+      gap: 18px;
+      padding: clamp(20px, 5vw, 42px);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--panel-2);
+      text-align: center;
+    }
+
+    .question-label {
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    .question {
+      overflow-wrap: anywhere;
+      font-size: clamp(2rem, 8vw, 4rem);
+      font-weight: 800;
+      line-height: 1.15;
+    }
+
+    .quiz-answer {
+      max-width: 520px;
+      margin: 0 auto;
+      text-align: left;
+    }
+
+    .feedback {
+      min-height: 55px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      text-align: left;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+
+    .feedback.correct {
+      border-color: color-mix(in srgb, var(--success) 55%, var(--border));
+      color: var(--success);
+    }
+
+    .feedback.wrong {
+      border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+      color: var(--danger);
+    }
+
+    .table-tools {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .table-tools input {
+      max-width: 360px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 720px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .number {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    .mistake-count {
+      color: var(--danger);
+      font-weight: 800;
+    }
+
+    .rate {
+      white-space: nowrap;
+    }
+
+    .empty {
+      padding: 30px 16px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .inline-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0 0;
+      font-weight: 500;
+    }
+
+    .inline-check input {
+      width: auto;
+      accent-color: var(--primary);
+    }
+
+    dialog {
+      width: min(520px, calc(100% - 24px));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 0;
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 20px 70px rgba(0,0,0,.3);
+    }
+
+    dialog::backdrop {
+      background: rgba(0,0,0,.55);
+    }
+
+    .dialog-inner {
+      padding: 22px;
+    }
+
+    .keyboard-hint {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .ocr-grid {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.85fr) minmax(280px, 1.15fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .image-preview {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .image-preview img {
+      display: block;
+      width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+    }
+
+    progress {
+      width: 100%;
+      height: 12px;
+      accent-color: var(--primary);
+    }
+
+    .today-count {
+      font-size: clamp(2.2rem, 8vw, 4.2rem);
+      line-height: 1;
+      font-weight: 850;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .due-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--warning) 13%, transparent);
+      color: var(--warning);
+      font-size: .78rem;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 760px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid-2, .quiz-toolbar, .ocr-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        padding: 16px;
+      }
+    }
+
+
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .backup-banner, .storage-warning {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 16px;
+      padding: 13px 15px;
+      border: 1px solid color-mix(in srgb, var(--warning) 50%, var(--border));
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--warning) 10%, var(--panel));
+    }
+
+    .backup-banner[hidden], .storage-warning[hidden], #installBtn[hidden] {
+      display: none !important;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .status-card {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
+    }
+
+    .status-title {
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .status-main {
+      margin-top: 4px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .status-detail {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .privacy-box {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+    }
+
+    .privacy-box p:last-child { margin-bottom: 0; }
+
+    @media (max-width: 760px) {
+      .header-actions { justify-content: flex-start; }
+      .backup-banner, .storage-warning { align-items: flex-start; flex-direction: column; }
+      .status-grid { grid-template-columns: 1fr; }
+    }
+
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1>単語学習アプリ</h1>
+        <p class="subtitle">自作単語帳・OCR登録・間隔復習。学習データは端末内だけに保存</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn ghost" id="installBtn" hidden>アプリをインストール</button>
+        <button class="btn ghost" id="exportBtn">バックアップ</button>
+      </div>
+    </header>
+
+    <section class="backup-banner" id="backupBanner" hidden aria-live="polite">
+      <div>
+        <strong id="backupBannerTitle">バックアップを推奨</strong>
+        <div class="muted" id="backupBannerText"></div>
+      </div>
+      <div class="button-row" style="margin:0">
+        <button class="btn primary" id="backupNowBtn" type="button">今すぐバックアップ</button>
+        <button class="btn ghost" id="dismissBackupBtn" type="button">7日後に再表示</button>
+      </div>
+    </section>
+
+    <section class="storage-warning" id="storageWarning" hidden aria-live="polite">
+      <div>
+        <strong>保存保護が有効ではない</strong>
+        <div class="muted">通常利用は可能だが、ブラウザによる自動整理への耐性が低い。JSONバックアップを推奨する。</div>
+      </div>
+      <button class="btn ghost" id="retryPersistBtn" type="button">保存保護を再試行</button>
+    </section>
+
+    <section class="summary" aria-label="学習状況">
+      <div class="stat-card">
+        <div class="stat-label">登録単語</div>
+        <div class="stat-value" id="statWords">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">総回答数</div>
+        <div class="stat-value" id="statAnswers">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">正解数</div>
+        <div class="stat-value" id="statCorrect">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">正答率</div>
+        <div class="stat-value" id="statRate">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">今日の単語</div>
+        <div class="stat-value" id="statToday">0</div>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="モード切替">
+      <button class="tab active" data-tab="add">単語登録</button>
+      <button class="tab" data-tab="quiz">問題</button>
+      <button class="tab" data-tab="today">今日の単語</button>
+      <button class="tab" data-tab="mistakes">間違い記録</button>
+      <button class="tab" data-tab="list">全単語一覧</button>
+      <button class="tab" data-tab="data">データ管理</button>
+    </nav>
+
+    <section class="panel active" id="panel-add">
+      <h2>単語を登録</h2>
+      <form id="addForm">
+        <div class="grid grid-2">
+          <div>
+            <label for="englishInput">英単語・英語表現</label>
+            <input id="englishInput" autocomplete="off" placeholder="例: accomplish" required />
+          </div>
+          <div>
+            <label for="japaneseInput">日本語訳</label>
+            <input id="japaneseInput" autocomplete="off" placeholder="例: 達成する、成し遂げる" required />
+          </div>
+        </div>
+        <p class="muted">複数の正解を設定する場合は「,」「、」「/」「;」で区切る。</p>
+        <div class="button-row">
+          <button class="btn primary" type="submit">追加する</button>
+          <button class="btn ghost" type="button" id="addAndContinueBtn">追加して英単語欄へ戻る</button>
+        </div>
+        <div id="addNotice" aria-live="polite"></div>
+      </form>
+
+      <hr style="border:0;border-top:1px solid var(--border);margin:28px 0">
+
+      <h3>複数行をまとめて登録</h3>
+      <p class="muted">1行につき「英語[TAB]日本語」または「英語,日本語」。Excelやスプレッドシートからの貼り付けにも対応する。</p>
+      <textarea id="bulkInput" placeholder="apple	りんご&#10;study	勉強する、研究する"></textarea>
+      <div class="button-row">
+        <button class="btn primary" type="button" id="bulkAddBtn">まとめて追加</button>
+      </div>
+      <div id="bulkNotice" aria-live="polite"></div>
+
+      <hr style="border:0;border-top:1px solid var(--border);margin:28px 0">
+
+      <h3>画像・手書きから読み取る</h3>
+      <p class="muted">画像内の文字をブラウザ上でOCRする。英字の活字体に近い手書きは比較的読み取れるが、日本語の崩し字や罫線が多い画像は誤認識しやすい。OCR後に内容を修正してから登録する。</p>
+      <div class="ocr-grid">
+        <div>
+          <label for="ocrImageInput">単語リストの画像</label>
+          <input id="ocrImageInput" type="file" accept="image/*" capture="environment" />
+          <div class="image-preview" id="ocrPreview">画像を選択するとここに表示する。</div>
+        </div>
+        <div>
+          <label for="ocrLanguage">OCR言語</label>
+          <select id="ocrLanguage">
+            <option value="eng+jpn">英語＋日本語</option>
+            <option value="eng">英語のみ</option>
+            <option value="jpn">日本語のみ</option>
+          </select>
+          <div class="button-row">
+            <button class="btn primary" type="button" id="ocrRunBtn">画像を読み取る</button>
+          </div>
+          <progress id="ocrProgress" max="1" value="0" hidden></progress>
+          <div id="ocrNotice" aria-live="polite"></div>
+          <p class="muted">読み取り結果は上の「複数行をまとめて登録」欄へ入る。「英語　日本語」のように左右へ書かれた行は自動でタブ区切りへ変換を試みる。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-quiz">
+      <div class="quiz-shell">
+        <h2>問題</h2>
+        <div class="quiz-toolbar">
+          <div>
+            <label for="quizDirection">出題方向</label>
+            <select id="quizDirection">
+              <option value="en-ja">英語 → 日本語</option>
+              <option value="ja-en">日本語 → 英語</option>
+              <option value="random">ランダム</option>
+            </select>
+          </div>
+          <div>
+            <label for="quizRange">出題範囲</label>
+            <select id="quizRange">
+              <option value="all">すべての単語</option>
+              <option value="mistakes">間違えた単語のみ</option>
+              <option value="today">今日の単語</option>
+              <option value="unanswered">未回答の単語のみ</option>
+            </select>
+          </div>
+          <div>
+            <label for="quizOrder">出題順</label>
+            <select id="quizOrder">
+              <option value="random">ランダム</option>
+              <option value="mistakes-desc">誤答回数が多い順</option>
+              <option value="newest">新しい順</option>
+            </select>
+          </div>
+          <div id="quizCountGroup">
+            <label for="quizCount">問題数</label>
+            <input id="quizCount" type="number" min="1" value="10" inputmode="numeric" />
+            <p class="quiz-count-hint" id="quizCountHint"></p>
+          </div>
+        </div>
+
+        <div class="quiz-card" id="quizCard">
+          <div id="quizEmpty">
+            <p class="empty">単語を登録すると問題を開始できる。</p>
+            <button class="btn primary" type="button" id="quizEmptyAction">単語を登録する</button>
+          </div>
+
+          <div id="quizContent" hidden>
+            <div class="quiz-progress" id="quizProgress"></div>
+            <div class="question-label" id="questionLabel">日本語訳を入力</div>
+            <div class="question" id="questionText"></div>
+            <div class="quiz-answer">
+              <label for="answerInput">回答</label>
+              <input id="answerInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="答えを入力" />
+              <label class="inline-check">
+                <input type="checkbox" id="strictAnswer" />
+                完全一致で判定する
+              </label>
+              <div class="button-row">
+                <button class="btn primary" type="button" id="checkBtn">答え合わせ</button>
+                <button class="btn ghost" type="button" id="skipBtn">スキップ</button>
+                <button class="btn ghost" type="button" id="showAnswerBtn">答えを見る</button>
+              </div>
+              <div class="feedback" id="feedback" aria-live="polite">回答を入力して「答え合わせ」を押す。</div>
+              <button class="btn primary" type="button" id="nextBtn" hidden>次の問題</button>
+              <div class="keyboard-hint">Enter: 答え合わせ／次の問題</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-today">
+      <h2>今日の単語</h2>
+      <div class="grid grid-2">
+        <div class="stat-card">
+          <div class="stat-label">本日までに復習する単語</div>
+          <div class="today-count" id="todayCount">0</div>
+          <p class="muted" id="todayMessage">今日の復習対象はない。</p>
+          <div class="button-row">
+            <button class="btn primary" type="button" id="startTodayBtn">今日の問題を開始</button>
+          </div>
+        </div>
+        <div class="stat-card">
+          <h3>復習ルール</h3>
+          <p class="muted">問題を間違えた日から1日後、4日後、7日後、14日後、30日後に自動で復習対象へ追加する。期限を過ぎても正解するまで残る。</p>
+        </div>
+      </div>
+      <div style="margin-top:18px" id="todayTable"></div>
+    </section>
+
+    <section class="panel" id="panel-mistakes">
+      <h2>間違い記録</h2>
+      <p class="muted">誤答回数が多い順に表示する。「回数をリセット」でその単語の正解・誤答記録を初期化できる。</p>
+      <div id="mistakeTable"></div>
+    </section>
+
+    <section class="panel" id="panel-list">
+      <h2>全単語一覧</h2>
+      <div class="table-tools">
+        <input id="searchInput" type="search" placeholder="英語・日本語で検索" />
+        <select id="listSort" style="max-width:230px">
+          <option value="newest">新しい順</option>
+          <option value="oldest">古い順</option>
+          <option value="english">英語の昇順</option>
+          <option value="mistakes-desc">誤答回数が多い順</option>
+        </select>
+      </div>
+      <div id="wordTable"></div>
+    </section>
+
+    <section class="panel" id="panel-data">
+      <h2>データ管理</h2>
+      <p class="muted">単語と学習記録はIndexedDBへ自動保存される。アカウント、クラウドDB、アクセス解析は使用しない。</p>
+
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="status-title">通常の保存先</div>
+          <div class="status-main" id="databaseStatus">IndexedDBを確認中</div>
+          <div class="status-detail" id="databaseDetail">このブラウザ・このサイトURL専用の保存領域</div>
+        </div>
+        <div class="status-card">
+          <div class="status-title">保存保護</div>
+          <div class="status-main" id="persistenceStatus">確認中</div>
+          <div class="status-detail" id="persistenceDetail"></div>
+        </div>
+        <div class="status-card">
+          <div class="status-title">最終バックアップ</div>
+          <div class="status-main" id="lastBackupStatus">未実施</div>
+          <div class="status-detail" id="backupChangeStatus">変更数を確認中</div>
+        </div>
+        <div class="status-card">
+          <div class="status-title">推定使用容量</div>
+          <div class="status-main" id="storageUsageStatus">確認中</div>
+          <div class="status-detail">ブラウザが報告できる場合のみ表示</div>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button class="btn primary" type="button" id="exportBtn2">JSONバックアップを書き出す</button>
+        <label class="btn ghost" style="display:inline-block;margin:0">
+          バックアップを読み込む
+          <input id="importInput" type="file" accept=".json,application/json" hidden />
+        </label>
+        <button class="btn ghost" type="button" id="exportCsvBtn">CSVを書き出す</button>
+        <button class="btn ghost" type="button" id="retryPersistBtn2">保存保護を再試行</button>
+        <button class="btn danger" type="button" id="clearAllBtn">全データを削除</button>
+      </div>
+      <div id="dataNotice" aria-live="polite"></div>
+
+      <div class="privacy-box">
+        <h3>保存上の注意</h3>
+        <p>データは現在開いているブラウザと、このGitHub Pagesの正確なURLに紐づく。ブラウザ変更、サイトURL変更、サイトデータ削除、端末初期化・故障時はJSONバックアップから復元する必要がある。</p>
+        <p class="muted">OCRは処理エンジンと言語データの取得時に通信を使う場合があるが、選択した画像と読み取り文字をオンラインDBへ保存しない。</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="editDialog">
+    <form method="dialog" class="dialog-inner" id="editForm">
+      <h2>単語を編集</h2>
+      <input type="hidden" id="editId" />
+      <div class="grid">
+        <div>
+          <label for="editEnglish">英語</label>
+          <input id="editEnglish" required />
+        </div>
+        <div>
+          <label for="editJapanese">日本語訳</label>
+          <input id="editJapanese" required />
+        </div>
+      </div>
+      <div class="button-row">
+        <button class="btn primary" value="save" type="submit">保存</button>
+        <button class="btn ghost" value="cancel" type="button" id="cancelEditBtn">キャンセル</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="./app.js" defer></script>
+</body>
+</html>
