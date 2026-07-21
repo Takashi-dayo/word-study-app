@@ -266,13 +266,6 @@
       margin-bottom: 20px;
     }
 
-    .quiz-count-hint {
-      min-height: 1.4em;
-      margin: 5px 0 0;
-      color: var(--muted);
-      font-size: 0.78rem;
-    }
-
     .quiz-progress {
       color: var(--muted);
       font-size: 0.86rem;
@@ -328,6 +321,35 @@
     .feedback.wrong {
       border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
       color: var(--danger);
+    }
+
+    .correct-answer-block {
+      margin-top: 16px;
+      padding: 18px 16px 20px;
+      border: 3px solid color-mix(in srgb, var(--primary) 65%, var(--border));
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+      text-align: center;
+      box-shadow: 0 8px 22px color-mix(in srgb, var(--primary) 16%, transparent);
+    }
+
+    .correct-answer-label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .correct-answer-value {
+      display: block;
+      color: var(--text);
+      font-size: clamp(2.5rem, 10vw, 5.2rem);
+      font-weight: 950;
+      line-height: 1.12;
+      letter-spacing: 0.01em;
+      overflow-wrap: anywhere;
     }
 
     .table-tools {
@@ -421,12 +443,6 @@
 
     .dialog-inner {
       padding: 22px;
-    }
-
-    .keyboard-hint {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 0.8rem;
     }
 
 
@@ -650,7 +666,7 @@
       <div class="privacy-box" style="margin-top:0">
         <p>ChatGPTなどAIに、下の文章を入力し、ノートの画像と一緒に送信する。</p>
         <label for="aiReadPrompt">AIへ送る文章</label>
-        <textarea id="aiReadPrompt" readonly style="min-height:150px">この画像は英単語とそれに対応する日本語が書かれている。  英語と日本語を読み取れ。 1行につき「英語[TAB]日本語」 という形で出力しろ。 必ず英語と日本語一ペアごとに改行しろ。  また、読み取ったことのみ出力しろ  その他一切何も絶対に出力するな</textarea>
+        <textarea id="aiReadPrompt" readonly style="min-height:150px">この画像は英単語とそれに対応する日本語が書かれている。  英語と日本語を読み取れ。 1行につき「英語[TAB]日本語」 という形で出力しろ  また、読み取ったことのみ出力しろ  その他一切何も絶対に出力するな</textarea>
         <div class="button-row">
           <button class="btn primary" type="button" id="copyAiPromptBtn">文章をコピー</button>
         </div>
@@ -676,7 +692,6 @@
             <select id="quizRange">
               <option value="all">すべての単語</option>
               <option value="mistakes">間違えた単語のみ</option>
-              <option value="today">今日の単語</option>
               <option value="unanswered">未回答の単語のみ</option>
             </select>
           </div>
@@ -691,7 +706,6 @@
           <div id="quizCountGroup">
             <label for="quizCount">問題数</label>
             <input id="quizCount" type="number" min="1" value="10" inputmode="numeric" />
-            <p class="quiz-count-hint" id="quizCountHint"></p>
           </div>
         </div>
 
@@ -718,8 +732,11 @@
                 <button class="btn ghost" type="button" id="showAnswerBtn">答えを見る</button>
               </div>
               <div class="feedback" id="feedback" aria-live="polite">回答を入力して「答え合わせ」を押す。</div>
+              <div class="button-row" id="manualJudgeRow" hidden>
+                <button class="btn primary" type="button" id="markCorrectBtn">正解として扱う</button>
+                <button class="btn danger" type="button" id="markWrongBtn">不正解として記録</button>
+              </div>
               <button class="btn primary" type="button" id="nextBtn" hidden>次の問題</button>
-              <div class="keyboard-hint">Enter: 答え合わせ／次の問題</div>
             </div>
           </div>
         </div>
