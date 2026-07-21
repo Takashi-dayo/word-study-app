@@ -1200,11 +1200,17 @@
     setTimeout(() => $("#answerInput").focus(), 0);
   }
 
-  function correctAnswerMarkup(expected, label = "正しい答え", englishText = "") {
+  function correctAnswerMarkup(expected, label = "模範解答：", englishText = "") {
     const speakButton = englishText
       ? `<button class="speak-button" type="button" data-speak="${escapeHtml(englishText)}">🔊 発音を聞く</button>`
       : "";
-    return `<div class="correct-answer-block"><span class="correct-answer-label">${escapeHtml(label)}</span><span class="correct-answer-value">${escapeHtml(expected)}</span>${speakButton}</div>`;
+    return `<div class="correct-answer-card"><div class="correct-answer-label">${escapeHtml(label)}</div><div class="correct-answer-text">${escapeHtml(expected)}</div>${speakButton}</div>`;
+  }
+
+  function resultStatusMarkup(result, note = "") {
+    const label = result === "correct" ? "正解" : "不正解";
+    const noteMarkup = note ? `<div class="result-note">${escapeHtml(note)}</div>` : "";
+    return `<div class="result-status ${result}">${label}</div>${noteMarkup}`;
   }
 
   function updateNextActionButton() {
@@ -1231,21 +1237,27 @@
     $("#nextBtn").focus();
   }
 
-  function recordCorrectAnswer(word, expected, message = "正解。") {
+  function recordCorrectAnswer(word, expected) {
     word.correct += 1;
     recordAnswerHistory("correct");
     if (currentQuizRange() === "today") completeDueReviews(word);
     saveData();
-    finishAnswer("correct", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected, "正しい答え", state.currentDirection === "ja-en" ? expected : "")}`);
+    finishAnswer(
+      "correct",
+      `${resultStatusMarkup("correct")}${correctAnswerMarkup(expected, "模範解答：", state.currentDirection === "ja-en" ? expected : "")}`
+    );
   }
 
-  function recordWrongAnswer(word, expected, message = "不正解。") {
+  function recordWrongAnswer(word, expected, note = "") {
     word.mistakes += 1;
     recordAnswerHistory("wrong");
     if (currentQuizRange() === "today") completeDueReviews(word);
     scheduleReview(word);
     saveData();
-    finishAnswer("wrong", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected, "正しい答え", state.currentDirection === "ja-en" ? expected : "")}`);
+    finishAnswer(
+      "wrong",
+      `${resultStatusMarkup("wrong", note)}${correctAnswerMarkup(expected, "模範解答：", state.currentDirection === "ja-en" ? expected : "")}`
+    );
   }
 
   function requestManualJudgement(input, expected) {
@@ -1279,7 +1291,7 @@
 
     const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
     if (isCorrect) {
-      recordCorrectAnswer(word, expected, "正解として記録した。");
+      recordCorrectAnswer(word, expected);
     } else {
       recordWrongAnswer(word, expected);
     }
@@ -1320,7 +1332,7 @@
     if (currentQuizRange() === "today") completeDueReviews(word);
     scheduleReview(word);
     saveData();
-    finishAnswer("wrong", `<strong>答えを表示したため誤答として記録。</strong>${correctAnswerMarkup(expected, "正しい答え", state.currentDirection === "ja-en" ? expected : "")}`);
+    finishAnswer("wrong", `${resultStatusMarkup("wrong", "答えを表示したため不正解として記録")}${correctAnswerMarkup(expected, "模範解答：", state.currentDirection === "ja-en" ? expected : "")}`);
   }
 
   function skipQuestion() {
@@ -1579,8 +1591,8 @@
     const title = `今日の単語 あと${count}個`;
     const options = {
       body: "今日の学習対象が残っている。",
-      icon: "./icons/icon-192-v2.png",
-      badge: "./icons/icon-192-v2.png",
+      icon: "./icons/icon-192-v3.png",
+      badge: "./icons/icon-192-v3.png",
       tag: "word-study-today",
       renotify: true,
       data: { url: "./#today" }
