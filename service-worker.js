@@ -1,11 +1,14 @@
-const CACHE_NAME = "word-study-app-shell-v4-0";
+const CACHE_NAME = "word-study-app-shell-v6-1";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./app.js?v=4.0",
-  "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./spell-dictionary.js?v=6.0",
+  "./app.js?v=6.0",
+  "./manifest.webmanifest?v=6.1",
+  "./icons/icon-192-v2.png",
+  "./icons/icon-64-v2.png",
+  "./icons/apple-touch-icon-v2.png",
+  "./icons/icon-512-v2.png"
 ];
 
 self.addEventListener("install", (event) => {

@@ -6,7 +6,7 @@
   const STORE_NAME = "appState";
   const RECORD_KEY = "main";
   const LEGACY_STORAGE_KEYS = ["custom-word-study-app-v1", "custom-word-study-app-v2"];
-  const APP_DATA_VERSION = 3;
+  const APP_DATA_VERSION = 4;
   const BACKUP_CHANGE_THRESHOLD = 50;
   const BACKUP_DAY_THRESHOLD = 30;
   const BACKUP_SNOOZE_DAYS = 7;
@@ -29,8 +29,8 @@
     quizSessionComplete: false,
     manualJudgePending: false,
     quizRangeOverride: null,
-    pendingAddWarning: null,
-    pendingBulkWarnings: []
+    pendingRegistration: null,
+    pendingBulkSpellWarnings: []
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -48,7 +48,8 @@
       migratedFromLocalStorage: false,
       notificationEnabled: false,
       notificationTimes: [],
-      notificationSent: {}
+      notificationSent: {},
+      answerHistory: []
     };
   }
 
@@ -69,7 +70,16 @@
         : [],
       notificationSent: meta?.notificationSent && typeof meta.notificationSent === "object"
         ? { ...meta.notificationSent }
-        : {}
+        : {},
+      answerHistory: Array.isArray(meta?.answerHistory)
+        ? meta.answerHistory.map((entry) => {
+            if (typeof entry === "string") return { date: entry, result: "unknown" };
+            return {
+              date: String(entry?.date || ""),
+              result: ["correct", "wrong", "revealed", "unknown"].includes(entry?.result) ? entry.result : "unknown"
+            };
+          }).filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry.date)).slice(-10000)
+        : []
     };
   }
 
@@ -407,45 +417,112 @@
     return normalize(value).replace(/^to\s+/, "").replace(/[^a-z0-9' -]/g, "").trim();
   }
 
-  function hasJapaneseScript(value) {
-    return /[\u3040-\u30ff\u3400-\u9fff]/.test(String(value));
+  const SPELL_WORDS = Array.isArray(window.WORD_STUDY_SPELL_WORDS)
+    ? window.WORD_STUDY_SPELL_WORDS
+    : Object.keys(COMMON_MEANINGS);
+  const SPELL_WORD_SET = new Set([
+    ...SPELL_WORDS,
+    ...Object.keys(COMMON_MEANINGS),
+    "chatgpt", "github", "pwa", "api", "csv", "json"
+  ].map((word) => normalizeEnglishLookup(word)).filter(Boolean));
+  const SPELL_WORDS_BY_LENGTH = new Map();
+  for (const word of SPELL_WORD_SET) {
+    const length = word.length;
+    if (!SPELL_WORDS_BY_LENGTH.has(length)) SPELL_WORDS_BY_LENGTH.set(length, []);
+    SPELL_WORDS_BY_LENGTH.get(length).push(word);
+  }
+  const COMMON_SPELL_WORDS = new Set(Object.keys(COMMON_MEANINGS));
+
+  function englishTokens(value) {
+    return normalizeEnglishLookup(value)
+      .split(/[\s-]+/)
+      .map((token) => token.replace(/^'+|'+$/g, ""))
+      .filter(Boolean);
   }
 
-  function meaningCandidatesFor(english) {
-    const key = normalizeEnglishLookup(english);
+  function isAcceptedInflection(token) {
+    const checks = [];
+    if (token.endsWith("ies") && token.length > 4) checks.push(`${token.slice(0, -3)}y`);
+    if (token.endsWith("es") && token.length > 3) checks.push(token.slice(0, -2), token.slice(0, -1));
+    if (token.endsWith("s") && token.length > 3) checks.push(token.slice(0, -1));
+    if (token.endsWith("ing") && token.length > 5) {
+      const base = token.slice(0, -3);
+      checks.push(base, `${base}e`);
+      if (base.length > 2 && base.at(-1) === base.at(-2)) checks.push(base.slice(0, -1));
+    }
+    if (token.endsWith("ed") && token.length > 4) {
+      const base = token.slice(0, -2);
+      checks.push(base, `${base}e`);
+      if (base.endsWith("i")) checks.push(`${base.slice(0, -1)}y`);
+      if (base.length > 2 && base.at(-1) === base.at(-2)) checks.push(base.slice(0, -1));
+    }
+    if (token.endsWith("ly") && token.length > 4) checks.push(token.slice(0, -2));
+    if (token.endsWith("er") && token.length > 4) checks.push(token.slice(0, -2), `${token.slice(0, -1)}e`);
+    if (token.endsWith("est") && token.length > 5) checks.push(token.slice(0, -3), `${token.slice(0, -2)}e`);
+    return checks.some((candidate) => SPELL_WORD_SET.has(candidate));
+  }
+
+  function isKnownSpelling(token) {
+    if (!token || token.length <= 2 || /\d/.test(token)) return true;
+    return SPELL_WORD_SET.has(token) || isAcceptedInflection(token);
+  }
+
+  function spellSuggestionsForToken(token, limit = 3) {
+    const normalized = normalizeEnglishLookup(token);
+    if (!normalized || normalized.length <= 2 || isKnownSpelling(normalized)) return [];
+    const maximumDistance = normalized.length >= 8 ? 2 : 1;
     const candidates = [];
-    for (const word of state.words) {
-      if (normalizeEnglishLookup(word.english) === key) candidates.push(...splitAnswers(word.japanese));
+    for (let length = Math.max(2, normalized.length - maximumDistance); length <= normalized.length + maximumDistance; length++) {
+      const bucket = SPELL_WORDS_BY_LENGTH.get(length) || [];
+      for (const candidate of bucket) {
+        if (candidate[0] !== normalized[0]) continue;
+        const distance = levenshteinDistance(normalized, candidate);
+        if (distance <= maximumDistance) {
+          candidates.push({
+            word: candidate,
+            distance,
+            priority: COMMON_SPELL_WORDS.has(candidate) ? 0 : 1
+          });
+        }
+      }
     }
-    if (COMMON_MEANINGS[key]) candidates.push(...COMMON_MEANINGS[key]);
-    return [...new Set(candidates.map((item) => item.trim()).filter(Boolean))];
+    candidates.sort((a, b) => a.distance - b.distance || a.priority - b.priority || a.word.localeCompare(b.word, "en"));
+    return [...new Set(candidates.map((item) => item.word))].slice(0, limit);
   }
 
-  function validateMeaning(english, japanese) {
-    const en = String(english).trim();
-    const ja = String(japanese).trim();
-    const candidates = meaningCandidatesFor(en);
+  function replaceTokenInPhrase(phrase, targetIndex, replacement) {
+    let index = -1;
+    return String(phrase).replace(/[A-Za-z][A-Za-z'-]*/g, (token) => {
+      index += 1;
+      return index === targetIndex ? replacement : token;
+    });
+  }
 
-    if (!hasJapaneseScript(ja)) {
-      return {
-        warning: true,
-        reason: "日本語訳に日本語の文字が含まれていない。",
-        candidates
-      };
+  function checkEnglishSpelling(value) {
+    const tokens = englishTokens(value);
+    if (!tokens.length) return { status: "empty", issues: [], suggestions: [] };
+    const issues = [];
+    tokens.forEach((token, index) => {
+      if (isKnownSpelling(token)) return;
+      const candidates = spellSuggestionsForToken(token);
+      if (candidates.length) issues.push({ token, index, candidates });
+    });
+    if (!issues.length) {
+      const unknownTokens = tokens.filter((token) => !isKnownSpelling(token));
+      return unknownTokens.length
+        ? { status: "unknown", issues: [], suggestions: [] }
+        : { status: "ok", issues: [], suggestions: [] };
     }
+    const phraseSuggestions = issues[0].candidates.map((candidate) => replaceTokenInPhrase(value, issues[0].index, candidate));
+    return { status: "warning", issues, suggestions: phraseSuggestions };
+  }
 
-    if (!candidates.length) return { warning: false, candidates: [] };
-    const enteredAnswers = splitAnswers(ja);
-    const matched = enteredAnswers.some((entered) =>
-      candidates.some((candidate) => isFlexibleJapaneseMatch(entered, candidate))
-    );
-    return matched
-      ? { warning: false, candidates }
-      : {
-          warning: true,
-          reason: "内蔵辞書または既存の登録訳と大きく異なる。",
-          candidates
-        };
+  function duplicateStatus(english, japanese) {
+    const normalizedEnglish = normalize(english);
+    const normalizedJapanese = normalizeJapanese(japanese);
+    const sameEnglish = state.words.filter((word) => normalize(word.english) === normalizedEnglish);
+    const exact = sameEnglish.find((word) => normalizeJapanese(word.japanese) === normalizedJapanese);
+    return { exact, sameEnglish };
   }
 
   function speakEnglish(text) {
@@ -530,9 +607,9 @@
     return { ok: true, message: `「${en}」を追加した。` };
   }
 
-  function clearSingleMeaningWarning() {
-    state.pendingAddWarning = null;
-    const panel = $("#meaningWarning");
+  function clearRegistrationWarning() {
+    state.pendingRegistration = null;
+    const panel = $("#registrationWarning");
     if (panel) panel.hidden = true;
   }
 
@@ -541,87 +618,208 @@
     if (!result.ok) return;
     $("#englishInput").value = "";
     $("#japaneseInput").value = "";
-    clearSingleMeaningWarning();
+    if ($("#spellCheckStatus")) $("#spellCheckStatus").innerHTML = "";
+    clearRegistrationWarning();
     if (focusEnglish) $("#englishInput").focus();
   }
 
-  function showSingleMeaningWarning(english, japanese, validation, focusEnglish) {
-    state.pendingAddWarning = {
-      english: english.trim(),
-      japanese: japanese.trim(),
-      suggested: validation.candidates.join("、"),
-      focusEnglish
-    };
-    const suggestion = validation.candidates.length
-      ? `<div class="meaning-warning-pair"><span class="meaning-warning-label">訂正候補</span><span class="meaning-suggestion">${escapeHtml(validation.candidates.join("、"))}</span></div>`
-      : `<p class="muted">この単語は内蔵辞書にないため訂正候補を自動生成できない。</p>`;
-    $("#meaningWarningBody").innerHTML =
-      `<p>${escapeHtml(validation.reason)}</p>` +
-      `<div class="meaning-warning-pair"><span class="meaning-warning-label">入力</span><span>${escapeHtml(english)} ＝ ${escapeHtml(japanese)}</span></div>` +
-      suggestion;
-    $("#useSuggestedMeaningBtn").hidden = !validation.candidates.length;
-    $("#meaningWarning").hidden = false;
-    $("#meaningWarning").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  function renderSpellStatus() {
+    const target = $("#spellCheckStatus");
+    if (!target) return;
+    const value = $("#englishInput")?.value || "";
+    const result = checkEnglishSpelling(value);
+    target.className = "spell-status";
+    if (result.status === "empty") {
+      target.innerHTML = "";
+      return;
+    }
+    if (result.status === "ok") {
+      target.classList.add("ok");
+      target.textContent = "スペルを確認済み";
+      return;
+    }
+    if (result.status === "unknown") {
+      target.classList.add("warning");
+      target.textContent = "辞書にない語。固有名詞・専門用語ならそのまま登録できる。";
+      return;
+    }
+    target.classList.add("warning");
+    target.innerHTML = `スペル候補を確認: <div class="spell-suggestions">${result.suggestions.map((suggestion) => `<button class="spell-chip" type="button" data-spell-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</button>`).join("")}</div>`;
   }
 
-  function attemptSingleAdd(focusEnglish = true) {
-    const english = $("#englishInput").value;
-    const japanese = $("#japaneseInput").value;
-    clearSingleMeaningWarning();
+  let spellStatusTimer = null;
+  function scheduleSpellStatusCheck() {
+    if (spellStatusTimer) clearTimeout(spellStatusTimer);
+    spellStatusTimer = setTimeout(renderSpellStatus, 350);
+  }
 
-    if (!english.trim() || !japanese.trim()) {
+  function showRegistrationWarning(type, english, japanese, details = {}, focusEnglish = true) {
+    state.pendingRegistration = { type, english: english.trim(), japanese: japanese.trim(), details, focusEnglish };
+    const title = $("#registrationWarningTitle");
+    const body = $("#registrationWarningBody");
+    const apply = $("#applySpellSuggestionBtn");
+    const confirmButton = $("#confirmRegistrationBtn");
+    apply.hidden = true;
+    confirmButton.hidden = true;
+
+    if (type === "exact-duplicate") {
+      title.textContent = "同じ単語が登録済み";
+      body.innerHTML = `<p><strong>${escapeHtml(english)}</strong> ＝ ${escapeHtml(japanese)}</p><p class="muted">完全に同じ組み合わせは重複登録できない。</p>`;
+    } else if (type === "spelling") {
+      title.textContent = "スペルを確認";
+      const suggestions = details.suggestions || [];
+      body.innerHTML = `<p>「<strong>${escapeHtml(english)}</strong>」は入力ミスの可能性がある。</p><div class="spell-suggestions">${suggestions.map((suggestion) => `<button class="spell-chip" type="button" data-spell-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</button>`).join("")}</div>`;
+      if (suggestions.length) {
+        apply.hidden = false;
+        apply.textContent = `「${suggestions[0]}」を使う`;
+      }
+      confirmButton.hidden = false;
+      confirmButton.textContent = "この綴りで登録";
+    } else if (type === "same-english") {
+      title.textContent = "同じ英単語が登録済み";
+      const meanings = details.existing.map((word) => word.japanese).join("、");
+      body.innerHTML = `<p><strong>${escapeHtml(english)}</strong> はすでに登録されている。</p><div class="duplicate-detail"><span class="muted">登録済みの意味</span><br>${escapeHtml(meanings)}</div><p class="muted" style="margin-top:9px">別の意味として追加する場合だけ続行する。</p>`;
+      confirmButton.hidden = false;
+      confirmButton.textContent = "この意味も追加";
+    }
+    $("#registrationWarning").hidden = false;
+    $("#registrationWarning").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function attemptSingleAdd(focusEnglish = true, options = {}) {
+    const english = $("#englishInput").value.trim();
+    const japanese = $("#japaneseInput").value.trim();
+    clearRegistrationWarning();
+
+    if (!english || !japanese) {
       finishSingleAdd({ ok: false, message: "英語と日本語訳の両方を入力する必要がある。" }, focusEnglish);
       return;
     }
 
-    const validation = validateMeaning(english, japanese);
-    if (validation.warning) {
-      showNotice($("#addNotice"), "登録前に日本語訳を確認する必要がある。", "error");
-      showSingleMeaningWarning(english, japanese, validation, focusEnglish);
+    const duplicates = duplicateStatus(english, japanese);
+    if (duplicates.exact) {
+      showNotice($("#addNotice"), "完全に同じ単語がすでに登録されている。", "error");
+      showRegistrationWarning("exact-duplicate", english, japanese, {}, focusEnglish);
       return;
     }
+
+    if (!options.bypassSpelling) {
+      const spelling = checkEnglishSpelling(english);
+      if (spelling.status === "warning") {
+        showNotice($("#addNotice"), "登録前にスペルを確認する必要がある。", "error");
+        showRegistrationWarning("spelling", english, japanese, spelling, focusEnglish);
+        return;
+      }
+    }
+
+    if (!options.bypassSameEnglish && duplicates.sameEnglish.length) {
+      showNotice($("#addNotice"), "同じ英単語がすでに登録されている。", "error");
+      showRegistrationWarning("same-english", english, japanese, { existing: duplicates.sameEnglish }, focusEnglish);
+      return;
+    }
+
     finishSingleAdd(addWord(english, japanese), focusEnglish);
   }
 
-  function clearBulkMeaningWarning() {
-    state.pendingBulkWarnings = [];
-    const panel = $("#bulkMeaningWarning");
+  function clearBulkSpellWarning() {
+    state.pendingBulkSpellWarnings = [];
+    const panel = $("#bulkSpellWarning");
     if (panel) panel.hidden = true;
   }
 
-  function showBulkMeaningWarnings(warnings) {
-    state.pendingBulkWarnings = warnings;
-    $("#bulkMeaningWarningList").innerHTML = warnings.map((item) => {
-      const suggestion = item.validation.candidates.length
-        ? item.validation.candidates.join("、")
-        : "訂正候補なし";
-      return `<div class="bulk-warning-item"><strong>${escapeHtml(item.english)}</strong><br>` +
-        `<span class="muted">入力:</span> ${escapeHtml(item.japanese)}<br>` +
-        `<span class="muted">候補:</span> ${escapeHtml(suggestion)}</div>`;
+  function showBulkSpellWarnings(warnings) {
+    state.pendingBulkSpellWarnings = warnings;
+    $("#bulkSpellWarningList").innerHTML = warnings.map((item) => {
+      const suggestions = item.spelling.suggestions || [];
+      return `<div class="warning-item"><strong>${escapeHtml(item.english)}</strong> ＝ ${escapeHtml(item.japanese)}<br><span class="muted">候補:</span> ${escapeHtml(suggestions.join("、") || "候補なし")}</div>`;
     }).join("");
-    $("#useBulkSuggestedBtn").hidden = warnings.some((item) => !item.validation.candidates.length);
-    $("#bulkMeaningWarning").hidden = false;
+    $("#useBulkSpellSuggestionsBtn").hidden = warnings.some((item) => !item.spelling.suggestions.length);
+    $("#bulkSpellWarning").hidden = false;
   }
 
-  function registerPendingBulk(useSuggested) {
-    const warnings = [...state.pendingBulkWarnings];
+  function registerPendingBulkSpell(useSuggested) {
+    const warnings = [...state.pendingBulkSpellWarnings];
     if (!warnings.length) return;
     let added = 0;
     let skipped = 0;
+    const duplicateItems = [];
     for (const item of warnings) {
-      const meaning = useSuggested && item.validation.candidates.length
-        ? item.validation.candidates.join("、")
-        : item.japanese;
-      const result = addWord(item.english, meaning);
+      const english = useSuggested && item.spelling.suggestions.length
+        ? item.spelling.suggestions[0]
+        : item.english;
+      const duplicates = duplicateStatus(english, item.japanese);
+      if (duplicates.exact) {
+        skipped += 1;
+        duplicateItems.push({ english, japanese: item.japanese, type: "exact" });
+        continue;
+      }
+      if (duplicates.sameEnglish.length) {
+        duplicateItems.push({ english, japanese: item.japanese, type: "same", existing: duplicates.sameEnglish.map((word) => word.japanese) });
+      }
+      const result = addWord(english, item.japanese);
       result.ok ? added++ : skipped++;
     }
-    clearBulkMeaningWarning();
+    clearBulkSpellWarning();
+    if (duplicateItems.length) renderBulkDuplicateReport(duplicateItems);
     $("#bulkInput").value = "";
     showNotice($("#bulkNotice"), `${added}語を追加、${skipped}行をスキップした。`, added ? "success" : "error");
   }
 
+  function renderBulkDuplicateReport(items) {
+    const panel = $("#bulkDuplicateReport");
+    const list = $("#bulkDuplicateReportList");
+    if (!panel || !list) return;
+    if (!items.length) {
+      panel.hidden = true;
+      list.innerHTML = "";
+      return;
+    }
+    list.innerHTML = items.map((item) => {
+      const detail = item.type === "exact"
+        ? "完全に同じためスキップ"
+        : `同じ英単語を別の意味として追加（登録済み: ${item.existing.join("、")}）`;
+      return `<div class="warning-item"><strong>${escapeHtml(item.english)}</strong> ＝ ${escapeHtml(item.japanese)}<br><span class="muted">${escapeHtml(detail)}</span></div>`;
+    }).join("");
+    panel.hidden = false;
+  }
+
   function showNotice(target, message, type = "") {
+    if (!target) return;
     target.innerHTML = `<div class="notice ${type}">${escapeHtml(message)}</div>`;
+  }
+
+  function showRegistrationChooser() {
+    const chooser = $("#registrationChooser");
+    const single = $("#singleRegistrationView");
+    const bulk = $("#bulkRegistrationView");
+    if (chooser) chooser.hidden = false;
+    if (single) single.hidden = true;
+    if (bulk) bulk.hidden = true;
+  }
+
+  function showRegistrationMode(mode) {
+    const chooser = $("#registrationChooser");
+    const single = $("#singleRegistrationView");
+    const bulk = $("#bulkRegistrationView");
+    if (chooser) chooser.hidden = true;
+    if (single) single.hidden = mode !== "single";
+    if (bulk) bulk.hidden = mode !== "bulk";
+    requestAnimationFrame(() => {
+      if (mode === "single") $("#englishInput")?.focus();
+      if (mode === "bulk") $("#bulkInput")?.focus();
+    });
+  }
+
+  function openSettings() {
+    renderStorageStatus();
+    renderNotificationSettings();
+    const dialog = $("#settingsDialog");
+    if (dialog && !dialog.open) dialog.showModal();
+  }
+
+  function closeSettings() {
+    const dialog = $("#settingsDialog");
+    if (dialog?.open) dialog.close();
   }
 
   function switchTab(tabName) {
@@ -629,14 +827,19 @@
       const todayTabActive = $(".tab.active")?.dataset.tab === "today";
       if (!todayTabActive) state.quizRangeOverride = null;
     }
-    $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === tabName));
+    $$(".tab").forEach((tab) => {
+      const active = tab.dataset.tab === tabName;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-current", active ? "page" : "false");
+    });
     $$(".panel").forEach((panel) => panel.classList.toggle("active", panel.id === `panel-${tabName}`));
 
     if (tabName === "quiz") prepareQuiz();
     if (tabName === "today") renderToday();
-    if (tabName === "mistakes") renderMistakes();
+    if (tabName === "add") showRegistrationChooser();
     if (tabName === "list") renderWordList();
-    if (tabName === "data") renderStorageStatus();
+    if (tabName === "analysis") requestAnimationFrame(renderAnalysis);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function updateSummary() {
@@ -708,6 +911,18 @@
       case "oldest": return copy.sort((a, b) => a.createdAt - b.createdAt);
       case "english": return copy.sort((a, b) => a.english.localeCompare(b.english, "en"));
       case "mistakes-desc": return copy.sort((a, b) => b.mistakes - a.mistakes || b.createdAt - a.createdAt);
+      case "accuracy-asc": return copy.sort((a, b) => {
+        const aTotal = a.correct + a.mistakes;
+        const bTotal = b.correct + b.mistakes;
+        const aRate = aTotal ? a.correct / aTotal : 1;
+        const bRate = bTotal ? b.correct / bTotal : 1;
+        return aRate - bRate || b.mistakes - a.mistakes || a.english.localeCompare(b.english, "en");
+      });
+      case "unanswered-first": return copy.sort((a, b) => {
+        const aUnanswered = a.correct + a.mistakes === 0;
+        const bUnanswered = b.correct + b.mistakes === 0;
+        return Number(bUnanswered) - Number(aUnanswered) || b.createdAt - a.createdAt;
+      });
       case "newest":
       default: return copy.sort((a, b) => b.createdAt - a.createdAt);
     }
@@ -1018,6 +1233,7 @@
 
   function recordCorrectAnswer(word, expected, message = "正解。") {
     word.correct += 1;
+    recordAnswerHistory("correct");
     if (currentQuizRange() === "today") completeDueReviews(word);
     saveData();
     finishAnswer("correct", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected, "正しい答え", state.currentDirection === "ja-en" ? expected : "")}`);
@@ -1025,6 +1241,7 @@
 
   function recordWrongAnswer(word, expected, message = "不正解。") {
     word.mistakes += 1;
+    recordAnswerHistory("wrong");
     if (currentQuizRange() === "today") completeDueReviews(word);
     scheduleReview(word);
     saveData();
@@ -1099,6 +1316,7 @@
     if (!word) return;
     const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
     word.mistakes += 1;
+    recordAnswerHistory("revealed");
     if (currentQuizRange() === "today") completeDueReviews(word);
     scheduleReview(word);
     saveData();
@@ -1109,13 +1327,123 @@
     if (!state.answered) chooseNextQuestion();
   }
 
+  function recordAnswerHistory(result) {
+    const history = Array.isArray(state.meta.answerHistory) ? state.meta.answerHistory : [];
+    history.push({ date: localDateString(), result });
+    state.meta.answerHistory = history.slice(-10000);
+  }
+
+  function last30DateKeys() {
+    const keys = [];
+    const today = new Date();
+    for (let offset = 29; offset >= 0; offset--) {
+      const date = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      date.setDate(date.getDate() - offset);
+      keys.push(localDateString(date));
+    }
+    return keys;
+  }
+
+  function analyticsSeries() {
+    const dates = last30DateKeys();
+    const added = Object.fromEntries(dates.map((date) => [date, 0]));
+    const answered = Object.fromEntries(dates.map((date) => [date, 0]));
+    for (const word of state.words) {
+      const date = localDateString(new Date(word.createdAt));
+      if (date in added) added[date] += 1;
+    }
+    for (const entry of state.meta.answerHistory || []) {
+      if (entry.date in answered) answered[entry.date] += 1;
+    }
+    return {
+      dates,
+      added: dates.map((date) => added[date]),
+      answered: dates.map((date) => answered[date])
+    };
+  }
+
+  function drawDailyBarChart(canvas, dates, values, accentColor) {
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(rect.width * ratio);
+    canvas.height = Math.round(rect.height * ratio);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const width = rect.width;
+    const height = rect.height;
+    const styles = getComputedStyle(document.documentElement);
+    const textColor = styles.getPropertyValue("--muted").trim() || "#6e6e73";
+    const lineColor = styles.getPropertyValue("--line").trim() || "rgba(60,60,67,.14)";
+    const padding = { top: 14, right: 8, bottom: 34, left: 34 };
+    const chartWidth = Math.max(1, width - padding.left - padding.right);
+    const chartHeight = Math.max(1, height - padding.top - padding.bottom);
+    const maximum = Math.max(1, ...values);
+    const step = chartWidth / values.length;
+    const barWidth = Math.max(2, Math.min(13, step * 0.62));
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = textColor;
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 1;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let line = 0; line <= 4; line++) {
+      const value = Math.round(maximum * (4 - line) / 4);
+      const y = padding.top + chartHeight * line / 4;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(width - padding.right, y);
+      ctx.stroke();
+      ctx.fillText(String(value), padding.left - 7, y);
+    }
+
+    values.forEach((value, index) => {
+      const barHeight = value ? Math.max(3, value / maximum * chartHeight) : 0;
+      const x = padding.left + step * index + (step - barWidth) / 2;
+      const y = padding.top + chartHeight - barHeight;
+      ctx.fillStyle = accentColor;
+      ctx.beginPath();
+      const radius = Math.min(4, barWidth / 2, barHeight / 2);
+      if (barHeight > 0 && ctx.roundRect) ctx.roundRect(x, y, barWidth, barHeight, [radius, radius, 0, 0]);
+      else ctx.rect(x, y, barWidth, barHeight);
+      ctx.fill();
+    });
+
+    ctx.fillStyle = textColor;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const labelIndexes = [0, 5, 10, 15, 20, 25, 29];
+    for (const index of labelIndexes) {
+      const [, month, day] = dates[index].split("-");
+      const x = padding.left + step * index + step / 2;
+      ctx.fillText(`${Number(month)}/${Number(day)}`, x, padding.top + chartHeight + 9);
+    }
+  }
+
+  function renderAnalysis() {
+    if (!$("#addedWordsChart") || !$("#answeredQuestionsChart")) return;
+    const series = analyticsSeries();
+    const addedTotal = series.added.reduce((sum, value) => sum + value, 0);
+    const answeredTotal = series.answered.reduce((sum, value) => sum + value, 0);
+    $("#analysisAddedTotal").textContent = addedTotal;
+    $("#analysisAnsweredTotal").textContent = answeredTotal;
+    $("#addedChartTotal").textContent = `${addedTotal}語`;
+    $("#answeredChartTotal").textContent = `${answeredTotal}問`;
+    const styles = getComputedStyle(document.documentElement);
+    drawDailyBarChart($("#addedWordsChart"), series.dates, series.added, styles.getPropertyValue("--blue").trim() || "#007aff");
+    drawDailyBarChart($("#answeredQuestionsChart"), series.dates, series.answered, styles.getPropertyValue("--green").trim() || "#34c759");
+  }
+
   function refreshAll() {
     updateSummary();
     renderWordList();
-    renderMistakes();
     renderToday();
     renderStorageStatus();
     renderNotificationSettings();
+    renderAnalysis();
     updateBackupReminder();
   }
 
@@ -1251,8 +1579,8 @@
     const title = `今日の単語 あと${count}個`;
     const options = {
       body: "今日の学習対象が残っている。",
-      icon: "./icons/icon-192.png",
-      badge: "./icons/icon-192.png",
+      icon: "./icons/icon-192-v2.png",
+      badge: "./icons/icon-192-v2.png",
       tag: "word-study-today",
       renotify: true,
       data: { url: "./#today" }
@@ -1450,13 +1778,30 @@
 
   function bindEvents() {
     document.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-speak]");
-      if (!button) return;
-      event.preventDefault();
-      speakEnglish(button.dataset.speak);
+      const speakButton = event.target.closest("[data-speak]");
+      if (speakButton) {
+        event.preventDefault();
+        speakEnglish(speakButton.dataset.speak);
+        return;
+      }
+      const spellButton = event.target.closest("[data-spell-suggestion]");
+      if (spellButton) {
+        event.preventDefault();
+        $("#englishInput").value = spellButton.dataset.spellSuggestion;
+        clearRegistrationWarning();
+        renderSpellStatus();
+        $("#englishInput").focus();
+      }
     });
     $$(".tab").forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
     $$('[data-open-tab]').forEach((button) => button.addEventListener("click", () => switchTab(button.dataset.openTab)));
+    $$('[data-register-mode]').forEach((button) => button.addEventListener("click", () => showRegistrationMode(button.dataset.registerMode)));
+    $$('[data-registration-back]').forEach((button) => button.addEventListener("click", showRegistrationChooser));
+    $("#settingsBtn")?.addEventListener("click", openSettings);
+    $("#settingsCloseBtn")?.addEventListener("click", closeSettings);
+    $("#settingsDialog")?.addEventListener("click", (event) => {
+      if (event.target === $("#settingsDialog")) closeSettings();
+    });
 
     $("#addForm").addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1466,28 +1811,41 @@
     $("#addAndContinueBtn").addEventListener("click", () => attemptSingleAdd(true));
     $("#speakEnglishInputBtn").addEventListener("click", () => speakEnglish($("#englishInput").value));
 
-    $("#useSuggestedMeaningBtn").addEventListener("click", () => {
-      const pending = state.pendingAddWarning;
-      if (!pending || !pending.suggested) return;
-      finishSingleAdd(addWord(pending.english, pending.suggested), pending.focusEnglish);
+    $("#englishInput").addEventListener("input", scheduleSpellStatusCheck);
+    $("#englishInput").addEventListener("blur", renderSpellStatus);
+    $("#applySpellSuggestionBtn").addEventListener("click", () => {
+      const pending = state.pendingRegistration;
+      const suggestion = pending?.details?.suggestions?.[0];
+      if (!pending || !suggestion) return;
+      $("#englishInput").value = suggestion;
+      clearRegistrationWarning();
+      renderSpellStatus();
+      attemptSingleAdd(pending.focusEnglish);
     });
-    $("#keepEnteredMeaningBtn").addEventListener("click", () => {
-      const pending = state.pendingAddWarning;
+    $("#confirmRegistrationBtn").addEventListener("click", () => {
+      const pending = state.pendingRegistration;
       if (!pending) return;
-      finishSingleAdd(addWord(pending.english, pending.japanese), pending.focusEnglish);
+      if (pending.type === "spelling") {
+        clearRegistrationWarning();
+        attemptSingleAdd(pending.focusEnglish, { bypassSpelling: true });
+      } else if (pending.type === "same-english") {
+        finishSingleAdd(addWord(pending.english, pending.japanese), pending.focusEnglish);
+      }
     });
-    $("#cancelMeaningWarningBtn").addEventListener("click", () => {
-      clearSingleMeaningWarning();
-      $("#japaneseInput").focus();
-      $("#japaneseInput").select();
+    $("#cancelRegistrationWarningBtn").addEventListener("click", () => {
+      clearRegistrationWarning();
+      $("#englishInput").focus();
+      $("#englishInput").select();
     });
 
     $("#bulkAddBtn").addEventListener("click", () => {
-      clearBulkMeaningWarning();
+      clearBulkSpellWarning();
+      renderBulkDuplicateReport([]);
       const lines = $("#bulkInput").value.split(/\r?\n/);
       let added = 0;
       let skipped = 0;
-      const warnings = [];
+      const spellWarnings = [];
+      const duplicateItems = [];
       for (const line of lines) {
         const parsed = parseBulkLine(line);
         if (!parsed) {
@@ -1496,23 +1854,37 @@
         }
         const english = parsed[0].trim();
         const japanese = parsed[1].trim();
-        const validation = validateMeaning(english, japanese);
-        if (validation.warning) {
-          warnings.push({ english, japanese, validation });
+        if (!english || !japanese) {
+          skipped++;
           continue;
+        }
+        const duplicates = duplicateStatus(english, japanese);
+        if (duplicates.exact) {
+          skipped++;
+          duplicateItems.push({ english, japanese, type: "exact" });
+          continue;
+        }
+        const spelling = checkEnglishSpelling(english);
+        if (spelling.status === "warning") {
+          spellWarnings.push({ english, japanese, spelling });
+          continue;
+        }
+        if (duplicates.sameEnglish.length) {
+          duplicateItems.push({ english, japanese, type: "same", existing: duplicates.sameEnglish.map((word) => word.japanese) });
         }
         const result = addWord(english, japanese);
         result.ok ? added++ : skipped++;
       }
-      const warningText = warnings.length ? `、${warnings.length}語は意味確認待ち` : "";
-      showNotice($("#bulkNotice"), `${added}語を追加、${skipped}行をスキップ${warningText}。`, added ? "success" : (warnings.length ? "" : "error"));
-      if (warnings.length) showBulkMeaningWarnings(warnings);
+      if (duplicateItems.length) renderBulkDuplicateReport(duplicateItems);
+      const warningText = spellWarnings.length ? `、${spellWarnings.length}語はスペル確認待ち` : "";
+      showNotice($("#bulkNotice"), `${added}語を追加、${skipped}行をスキップ${warningText}。`, added ? "success" : (spellWarnings.length ? "" : "error"));
+      if (spellWarnings.length) showBulkSpellWarnings(spellWarnings);
       else if (added) $("#bulkInput").value = "";
     });
 
-    $("#useBulkSuggestedBtn").addEventListener("click", () => registerPendingBulk(true));
-    $("#keepBulkOriginalBtn").addEventListener("click", () => registerPendingBulk(false));
-    $("#cancelBulkWarningBtn").addEventListener("click", clearBulkMeaningWarning);
+    $("#useBulkSpellSuggestionsBtn").addEventListener("click", () => registerPendingBulkSpell(true));
+    $("#keepBulkSpellingsBtn").addEventListener("click", () => registerPendingBulkSpell(false));
+    $("#cancelBulkSpellWarningBtn").addEventListener("click", clearBulkSpellWarning);
 
 
     $("#copyAiPromptBtn").addEventListener("click", async () => {
@@ -1609,7 +1981,7 @@
       }
     });
 
-    $("#mistakeTable").addEventListener("click", (event) => {
+    $("#mistakeTable")?.addEventListener("click", (event) => {
       const button = event.target.closest('[data-action="reset"]');
       if (!button) return;
       const word = state.words.find((item) => item.id === button.dataset.id);
@@ -1654,9 +2026,16 @@
     $("#retryPersistBtn").addEventListener("click", retryPersist);
     $("#retryPersistBtn2").addEventListener("click", retryPersist);
     $("#installBtn").addEventListener("click", installPwa);
-    $("#openTodayBtn").addEventListener("click", () => switchTab("today"));
+    $("#openTodayBtn").addEventListener("click", () => $("#startTodayBtn")?.click());
     $("#saveNotificationSettingsBtn").addEventListener("click", saveNotificationSettings);
     $("#disableNotificationsBtn").addEventListener("click", disableNotifications);
+    let analysisResizeTimer = null;
+    window.addEventListener("resize", () => {
+      if (analysisResizeTimer) clearTimeout(analysisResizeTimer);
+      analysisResizeTimer = setTimeout(() => {
+        if ($("#panel-analysis")?.classList.contains("active")) renderAnalysis();
+      }, 120);
+    });
 
     $("#clearAllBtn").addEventListener("click", () => {
       if (!state.words.length) {
@@ -1665,6 +2044,7 @@
       }
       if (!confirm("登録単語と全学習記録を削除する。この操作は元に戻せない。")) return;
       state.words = [];
+      state.meta.answerHistory = [];
       resetQuizSession();
       saveData();
       showNotice($("#dataNotice"), "全データを削除した。", "success");
@@ -1682,7 +2062,7 @@
     refreshAll();
     startNotificationScheduler();
     await checkScheduledNotifications({ catchUp: true });
-    if (location.hash === "#today") switchTab("today");
+    switchTab(location.hash === "#today" ? "today" : "today");
 
     if (state.meta.migratedFromLocalStorage) {
       showNotice($("#dataNotice"), "旧版のlocalStorageデータをIndexedDBへ自動移行した。", "success");

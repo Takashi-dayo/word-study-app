@@ -1,23 +1,23 @@
 {
-  "name": "単語学習アプリ",
-  "short_name": "単語学習",
+  "name": "みんなの単語帳",
+  "short_name": "単語帳",
   "description": "端末内保存で使える自作英単語帳・復習問題",
   "lang": "ja",
   "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f4f6f8",
-  "theme_color": "#111827",
+  "background_color": "#f5f5f7",
+  "theme_color": "#f5f5f7",
   "icons": [
     {
-      "src": "./icons/icon-192.png",
+      "src": "./icons/icon-192-v2.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "./icons/icon-512.png",
+      "src": "./icons/icon-512-v2.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
