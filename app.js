@@ -10,10 +10,12 @@
   const BACKUP_CHANGE_THRESHOLD = 50;
   const BACKUP_DAY_THRESHOLD = 30;
   const BACKUP_SNOOZE_DAYS = 7;
+  const NOTIFICATION_CHECK_INTERVAL_MS = 30000;
 
   let database = null;
   let saveQueue = Promise.resolve();
   let deferredInstallPrompt = null;
+  let notificationTimer = null;
 
   const state = {
     words: [],
@@ -43,7 +45,10 @@
       changesSinceBackup: 0,
       backupReminderDismissedAt: null,
       storagePersisted: null,
-      migratedFromLocalStorage: false
+      migratedFromLocalStorage: false,
+      notificationEnabled: false,
+      notificationTimes: [],
+      notificationSent: {}
     };
   }
 
@@ -57,7 +62,14 @@
         : 0,
       storagePersisted: typeof meta?.storagePersisted === "boolean"
         ? meta.storagePersisted
-        : null
+        : null,
+      notificationEnabled: meta?.notificationEnabled === true,
+      notificationTimes: Array.isArray(meta?.notificationTimes)
+        ? [...new Set(meta.notificationTimes.filter((value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value))))].sort().slice(0, 3)
+        : [],
+      notificationSent: meta?.notificationSent && typeof meta.notificationSent === "object"
+        ? { ...meta.notificationSent }
+        : {}
     };
   }
 
@@ -636,6 +648,8 @@
     $("#statCorrect").textContent = totalCorrect;
     $("#statRate").textContent = totalAnswers ? `${Math.round((totalCorrect / totalAnswers) * 100)}%` : "—";
     $("#statToday").textContent = todayCount;
+    if ($("#todayReminderCount")) $("#todayReminderCount").textContent = `あと${todayCount}個`;
+    if ($("#openTodayBtn")) $("#openTodayBtn").disabled = todayCount === 0;
   }
 
   function getAccuracy(word) {
@@ -1101,6 +1115,7 @@
     renderMistakes();
     renderToday();
     renderStorageStatus();
+    renderNotificationSettings();
     updateBackupReminder();
   }
 
@@ -1208,6 +1223,114 @@
     const time = new Date(value).getTime();
     if (!Number.isFinite(time)) return Infinity;
     return Math.floor((Date.now() - time) / 86400000);
+  }
+
+  function notificationPermissionLabel() {
+    if (!("Notification" in window)) return "このブラウザは通知に対応していない";
+    if (Notification.permission === "denied") return "通知が拒否されている。ブラウザ設定から許可が必要";
+    if (!state.meta.notificationEnabled) return "通知は無効";
+    if (!state.meta.notificationTimes.length) return "通知時刻が未設定";
+    return `通知有効: ${state.meta.notificationTimes.join("、")}`;
+  }
+
+  function renderNotificationSettings() {
+    const times = state.meta.notificationTimes || [];
+    for (let index = 0; index < 3; index++) {
+      const input = $(`#notificationTime${index + 1}`);
+      if (input && document.activeElement !== input) input.value = times[index] || "";
+    }
+    if ($("#notificationStatus")) $("#notificationStatus").textContent = notificationPermissionLabel();
+  }
+
+  function dueTodayCount() {
+    return state.words.filter(isDueToday).length;
+  }
+
+  async function displayTodayNotification(count) {
+    if (!("Notification" in window) || Notification.permission !== "granted" || count <= 0) return false;
+    const title = `今日の単語 あと${count}個`;
+    const options = {
+      body: "今日の学習対象が残っている。",
+      icon: "./icons/icon-192.png",
+      badge: "./icons/icon-192.png",
+      tag: "word-study-today",
+      renotify: true,
+      data: { url: "./#today" }
+    };
+    try {
+      if (navigator.serviceWorker) {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification(title, options);
+      } else {
+        new Notification(title, options);
+      }
+      return true;
+    } catch (error) {
+      console.warn("通知表示に失敗:", error);
+      return false;
+    }
+  }
+
+  async function checkScheduledNotifications({ catchUp = false } = {}) {
+    if (!("Notification" in window)) return;
+    if (!state.meta.notificationEnabled || Notification.permission !== "granted") return;
+    const times = state.meta.notificationTimes || [];
+    if (!times.length) return;
+    const count = dueTodayCount();
+    if (!count) return;
+
+    const now = new Date();
+    const today = localDateString(now);
+    const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const unsent = times.filter((time) => state.meta.notificationSent?.[time] !== today);
+    let target = null;
+
+    if (catchUp) {
+      const past = unsent.filter((time) => time <= currentTime);
+      target = past.at(-1) || null;
+      if (target) {
+        for (const time of past) state.meta.notificationSent[time] = today;
+      }
+    } else {
+      target = unsent.find((time) => time === currentTime) || null;
+      if (target) state.meta.notificationSent[target] = today;
+    }
+
+    if (!target) return;
+    const shown = await displayTodayNotification(count);
+    if (shown) await saveData({ changeAmount: 0 });
+  }
+
+  function startNotificationScheduler() {
+    if (notificationTimer) clearInterval(notificationTimer);
+    notificationTimer = setInterval(() => checkScheduledNotifications(), NOTIFICATION_CHECK_INTERVAL_MS);
+  }
+
+  async function saveNotificationSettings() {
+    const times = [1, 2, 3]
+      .map((index) => $(`#notificationTime${index}`)?.value || "")
+      .filter(Boolean);
+    state.meta.notificationTimes = [...new Set(times)].sort().slice(0, 3);
+
+    if (!("Notification" in window)) {
+      state.meta.notificationEnabled = false;
+      await saveData({ changeAmount: 0 });
+      renderNotificationSettings();
+      return;
+    }
+
+    let permission = Notification.permission;
+    if (permission === "default") permission = await Notification.requestPermission();
+    state.meta.notificationEnabled = permission === "granted" && state.meta.notificationTimes.length > 0;
+    await saveData({ changeAmount: 0 });
+    renderNotificationSettings();
+    if (state.meta.notificationEnabled) await checkScheduledNotifications({ catchUp: true });
+  }
+
+  async function disableNotifications() {
+    state.meta.notificationEnabled = false;
+    await saveData({ changeAmount: 0 });
+    renderNotificationSettings();
   }
 
   function updateBackupReminder() {
@@ -1531,6 +1654,9 @@
     $("#retryPersistBtn").addEventListener("click", retryPersist);
     $("#retryPersistBtn2").addEventListener("click", retryPersist);
     $("#installBtn").addEventListener("click", installPwa);
+    $("#openTodayBtn").addEventListener("click", () => switchTab("today"));
+    $("#saveNotificationSettingsBtn").addEventListener("click", saveNotificationSettings);
+    $("#disableNotificationsBtn").addEventListener("click", disableNotifications);
 
     $("#clearAllBtn").addEventListener("click", () => {
       if (!state.words.length) {
@@ -1554,6 +1680,9 @@
     prepareQuiz(true);
     await requestPersistentStorage(false);
     refreshAll();
+    startNotificationScheduler();
+    await checkScheduledNotifications({ catchUp: true });
+    if (location.hash === "#today") switchTab("today");
 
     if (state.meta.migratedFromLocalStorage) {
       showNotice($("#dataNotice"), "旧版のlocalStorageデータをIndexedDBへ自動移行した。", "success");

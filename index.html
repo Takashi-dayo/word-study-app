@@ -763,7 +763,7 @@
       gap: 8px;
     }
 
-    .backup-banner, .storage-warning {
+    .backup-banner, .storage-warning, .today-reminder-banner {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -775,7 +775,7 @@
       background: color-mix(in srgb, var(--warning) 10%, var(--panel));
     }
 
-    .backup-banner[hidden], .storage-warning[hidden], #installBtn[hidden] {
+    .backup-banner[hidden], .storage-warning[hidden], .today-reminder-banner[hidden], #installBtn[hidden] {
       display: none !important;
     }
 
@@ -823,8 +823,61 @@
 
     @media (max-width: 760px) {
       .header-actions { justify-content: flex-start; }
-      .backup-banner, .storage-warning { align-items: flex-start; flex-direction: column; }
+      .backup-banner, .storage-warning, .today-reminder-banner { align-items: flex-start; flex-direction: column; }
       .status-grid { grid-template-columns: 1fr; }
+    }
+
+
+    .today-reminder-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+      padding: 14px 16px;
+      border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border));
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+      box-shadow: var(--shadow);
+    }
+
+    .today-reminder-count {
+      font-size: clamp(1.15rem, 4vw, 1.55rem);
+      font-weight: 850;
+      line-height: 1.25;
+    }
+
+    .notification-settings {
+      margin-top: 20px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-2);
+    }
+
+    .notification-times {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .notification-time label {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .bottom-backup {
+      display: flex;
+      justify-content: center;
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 760px) {
+      .notification-times { grid-template-columns: 1fr; }
+      .bottom-backup .btn { width: 100%; }
     }
 
   </style>
@@ -838,7 +891,6 @@
       </div>
       <div class="header-actions">
         <button class="btn ghost" id="installBtn" hidden>アプリをインストール</button>
-        <button class="btn ghost" id="exportBtn">バックアップ</button>
       </div>
     </header>
 
@@ -851,6 +903,14 @@
         <button class="btn primary" id="backupNowBtn" type="button">今すぐバックアップ</button>
         <button class="btn ghost" id="dismissBackupBtn" type="button">7日後に再表示</button>
       </div>
+    </section>
+
+    <section class="today-reminder-banner" id="todayReminderBanner" aria-live="polite">
+      <div>
+        <div class="muted">今日の単語</div>
+        <div class="today-reminder-count" id="todayReminderCount">あと0個</div>
+      </div>
+      <button class="btn primary" id="openTodayBtn" type="button">今日の単語を開く</button>
     </section>
 
     <section class="storage-warning" id="storageWarning" hidden aria-live="polite">
@@ -1100,6 +1160,30 @@
         </div>
       </div>
 
+      <div class="notification-settings">
+        <h3>今日の単語の通知</h3>
+        <p class="muted">通知時刻は最大3件まで設定できる。今日の単語が残っている場合だけ通知する。サーバーを使わないため、アプリを完全に終了している間の通知はOS・ブラウザによって動作しない場合がある。</p>
+        <div class="notification-times">
+          <div class="notification-time">
+            <label for="notificationTime1">通知1</label>
+            <input type="time" id="notificationTime1" />
+          </div>
+          <div class="notification-time">
+            <label for="notificationTime2">通知2</label>
+            <input type="time" id="notificationTime2" />
+          </div>
+          <div class="notification-time">
+            <label for="notificationTime3">通知3</label>
+            <input type="time" id="notificationTime3" />
+          </div>
+        </div>
+        <div class="button-row">
+          <button class="btn primary" type="button" id="saveNotificationSettingsBtn">時刻を保存して通知を有効化</button>
+          <button class="btn ghost" type="button" id="disableNotificationsBtn">通知を無効化</button>
+        </div>
+        <div class="status-detail" id="notificationStatus">通知設定を確認中</div>
+      </div>
+
       <div class="button-row">
         <button class="btn primary" type="button" id="exportBtn2">JSONバックアップを書き出す</button>
         <label class="btn ghost" style="display:inline-block;margin:0">
@@ -1118,6 +1202,10 @@
         <p class="muted">ノート画像はこのアプリへ送信しない。外部AIへ画像を送る場合、そのAIサービスのデータ取扱条件が適用される。</p>
       </div>
     </section>
+
+    <div class="bottom-backup">
+      <button class="btn ghost" id="exportBtn" type="button">バックアップ</button>
+    </div>
   </main>
 
   <dialog id="editDialog">
@@ -1140,6 +1228,6 @@
       </div>
     </form>
   </dialog>
-  <script src="./app.js?v=3.9" defer></script>
+  <script src="./app.js?v=4.0" defer></script>
 </body>
 </html>

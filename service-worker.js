@@ -1,8 +1,8 @@
-const CACHE_NAME = "word-study-app-shell-v3-9";
+const CACHE_NAME = "word-study-app-shell-v4-0";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./app.js?v=3.9",
+  "./app.js?v=4.0",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
@@ -52,6 +52,23 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() => cached);
       return cached || network;
+    })
+  );
+});
+
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || "./#today", self.location.href).href;
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if ("focus" in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      return clients.openWindow ? clients.openWindow(targetUrl) : undefined;
     })
   );
 });
