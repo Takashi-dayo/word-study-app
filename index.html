@@ -324,6 +324,96 @@
       }
     }
 
+    .english-with-audio {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .english-with-audio strong {
+      overflow-wrap: anywhere;
+    }
+
+    .speak-button {
+      flex: 0 0 auto;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: transparent;
+      color: var(--primary);
+      font-size: 0.8rem;
+      font-weight: 750;
+      line-height: 1.2;
+    }
+
+    .speak-button:hover {
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 9%, transparent);
+    }
+
+    .speak-button.input-speak {
+      margin-top: 8px;
+    }
+
+    .speak-button.question-speak {
+      justify-self: center;
+      padding: 7px 13px;
+      font-size: 0.86rem;
+    }
+
+    .meaning-warning {
+      margin-top: 14px;
+      padding: 15px;
+      border: 2px solid color-mix(in srgb, var(--warning) 60%, var(--border));
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--warning) 9%, var(--panel));
+    }
+
+    .meaning-warning-title {
+      margin-bottom: 8px;
+      color: var(--warning);
+      font-weight: 850;
+    }
+
+    .meaning-warning-pair {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 4px 10px;
+      margin: 9px 0;
+    }
+
+    .meaning-warning-label {
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-weight: 700;
+    }
+
+    .meaning-suggestion {
+      font-size: 1.12rem;
+      font-weight: 850;
+      overflow-wrap: anywhere;
+    }
+
+    .meaning-warning-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .bulk-warning-list {
+      display: grid;
+      gap: 9px;
+      margin-top: 10px;
+    }
+
+    .bulk-warning-item {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--panel);
+    }
+
     .notice {
       margin-top: 14px;
       padding: 10px 12px;
@@ -718,6 +808,7 @@
           <div>
             <label for="englishInput">英単語・英語表現</label>
             <input id="englishInput" autocomplete="off" placeholder="例: accomplish" required />
+            <button class="speak-button input-speak" type="button" id="speakEnglishInputBtn">🔊 発音を聞く</button>
           </div>
           <div>
             <label for="japaneseInput">日本語訳</label>
@@ -730,6 +821,15 @@
           <button class="btn ghost" type="button" id="addAndContinueBtn">追加して英単語欄へ戻る</button>
         </div>
         <div id="addNotice" aria-live="polite"></div>
+        <div class="meaning-warning" id="meaningWarning" hidden>
+          <div class="meaning-warning-title">日本語訳が大きく異なる可能性がある</div>
+          <div id="meaningWarningBody"></div>
+          <div class="meaning-warning-actions">
+            <button class="btn primary" type="button" id="useSuggestedMeaningBtn">候補へ訂正して登録</button>
+            <button class="btn ghost" type="button" id="keepEnteredMeaningBtn">入力内容のまま登録</button>
+            <button class="btn ghost small" type="button" id="cancelMeaningWarningBtn">入力を修正する</button>
+          </div>
+        </div>
       </form>
 
       <hr style="border:0;border-top:1px solid var(--border);margin:28px 0">
@@ -741,6 +841,15 @@
         <button class="btn primary" type="button" id="bulkAddBtn">まとめて追加</button>
       </div>
       <div id="bulkNotice" aria-live="polite"></div>
+      <div class="meaning-warning" id="bulkMeaningWarning" hidden>
+        <div class="meaning-warning-title">意味を確認する必要がある単語</div>
+        <div class="bulk-warning-list" id="bulkMeaningWarningList"></div>
+        <div class="meaning-warning-actions">
+          <button class="btn primary" type="button" id="useBulkSuggestedBtn">候補へ訂正して登録</button>
+          <button class="btn ghost" type="button" id="keepBulkOriginalBtn">元の訳のまま登録</button>
+          <button class="btn ghost small" type="button" id="cancelBulkWarningBtn">登録しない</button>
+        </div>
+      </div>
 
       <hr style="border:0;border-top:1px solid var(--border);margin:28px 0">
 
@@ -801,6 +910,7 @@
             <div class="quiz-progress" id="quizProgress"></div>
             <div class="question-label" id="questionLabel">日本語訳を入力</div>
             <div class="question" id="questionText"></div>
+            <button class="speak-button question-speak" type="button" id="speakQuestionBtn" hidden>🔊 発音を聞く</button>
             <div class="quiz-answer">
               <label for="answerInput">回答</label>
               <input id="answerInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="答えを入力" />
@@ -936,6 +1046,6 @@
       </div>
     </form>
   </dialog>
-  <script src="./app.js?v=3.7" defer></script>
+  <script src="./app.js?v=3.8" defer></script>
 </body>
 </html>

@@ -26,7 +26,9 @@
     quizSessionIndex: 0,
     quizSessionComplete: false,
     manualJudgePending: false,
-    quizRangeOverride: null
+    quizRangeOverride: null,
+    pendingAddWarning: null,
+    pendingBulkWarnings: []
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -342,6 +344,118 @@
     return answers.some((answer) => normalizedInput === normalizeLoose(answer));
   }
 
+  const COMMON_MEANINGS = Object.freeze({
+    apple: ["りんご"], book: ["本"], water: ["水"], school: ["学校"], teacher: ["先生", "教師"],
+    student: ["生徒", "学生"], friend: ["友達", "友人"], family: ["家族"], house: ["家"], room: ["部屋"],
+    door: ["ドア", "扉"], window: ["窓"], table: ["机", "テーブル"], chair: ["椅子"], computer: ["コンピューター", "パソコン"],
+    phone: ["電話"], car: ["車", "自動車"], train: ["電車", "列車"], station: ["駅"], road: ["道路", "道"],
+    city: ["都市", "市"], country: ["国", "田舎"], world: ["世界"], time: ["時間", "時"], day: ["日", "一日"],
+    night: ["夜"], morning: ["朝"], week: ["週"], month: ["月"], year: ["年"],
+    food: ["食べ物", "食品"], bread: ["パン"], rice: ["米", "ご飯"], meat: ["肉"], fish: ["魚"],
+    fruit: ["果物"], vegetable: ["野菜"], coffee: ["コーヒー"], tea: ["お茶", "紅茶"], milk: ["牛乳"],
+    eat: ["食べる"], drink: ["飲む"], sleep: ["眠る", "寝る"], wake: ["目を覚ます", "起きる"], walk: ["歩く"],
+    run: ["走る", "運営する"], sit: ["座る"], stand: ["立つ"], speak: ["話す"], listen: ["聞く", "耳を傾ける"],
+    read: ["読む"], write: ["書く"], study: ["勉強する", "研究する"], teach: ["教える"], learn: ["学ぶ", "習う"],
+    think: ["考える", "思う"], know: ["知っている", "分かる"], understand: ["理解する"], remember: ["覚えている", "思い出す"], forget: ["忘れる"],
+    see: ["見る", "会う"], watch: ["観る", "見守る"], look: ["見る"], hear: ["聞こえる", "聞く"], feel: ["感じる"],
+    make: ["作る"], use: ["使う"], buy: ["買う"], sell: ["売る"], give: ["与える", "あげる"],
+    take: ["取る", "持っていく"], bring: ["持ってくる"], send: ["送る"], receive: ["受け取る"], open: ["開ける", "開く"],
+    close: ["閉める", "閉じる"], start: ["始める", "始まる"], finish: ["終える", "終わる"], help: ["助ける", "手伝う"], need: ["必要とする", "必要である"],
+    want: ["欲しい", "望む"], like: ["好む", "好きである"], love: ["愛する", "大好きである"], live: ["住む", "生きる"], work: ["働く", "機能する"],
+    play: ["遊ぶ", "演奏する"], happy: ["幸せな", "うれしい"], sad: ["悲しい"], good: ["良い"], bad: ["悪い"],
+    big: ["大きい"], small: ["小さい"], new: ["新しい"], old: ["古い", "年を取った"], young: ["若い"],
+    easy: ["簡単な", "容易な"], difficult: ["難しい"], important: ["重要な", "大切な"], beautiful: ["美しい", "きれいな"], interesting: ["興味深い", "面白い"],
+    dog: ["犬"], cat: ["猫"], bird: ["鳥"], animal: ["動物"], person: ["人"], people: ["人々"],
+    child: ["子ども"], man: ["男性", "男"], woman: ["女性", "女"], name: ["名前"], language: ["言語"],
+    english: ["英語"], japanese: ["日本語"], music: ["音楽"], movie: ["映画"], game: ["ゲーム", "試合"],
+    picture: ["絵", "写真"], image: ["画像", "印象"], question: ["質問", "問題"], answer: ["答え", "回答"], problem: ["問題"],
+    idea: ["考え", "アイデア"], reason: ["理由"], result: ["結果"], example: ["例"], information: ["情報"],
+    change: ["変える", "変化"], move: ["動く", "引っ越す"], stop: ["止める", "止まる"], wait: ["待つ"], try: ["試す", "努力する"],
+    ask: ["尋ねる", "頼む"], tell: ["伝える", "教える"], say: ["言う"], call: ["呼ぶ", "電話する"], meet: ["会う"],
+    find: ["見つける"], lose: ["失う", "負ける"], win: ["勝つ"], choose: ["選ぶ"], decide: ["決める"],
+    create: ["作り出す", "作成する"], build: ["建てる", "構築する"], break: ["壊す", "壊れる"], cut: ["切る"], put: ["置く"],
+    keep: ["保つ", "持ち続ける"], leave: ["去る", "残す"], return: ["戻る", "返す"], arrive: ["到着する"], travel: ["旅行する"],
+    begin: ["始める"], end: ["終わる", "終える"], become: ["なる"], happen: ["起こる"], show: ["見せる", "示す"],
+    explain: ["説明する"], improve: ["改善する"], increase: ["増える", "増やす"], decrease: ["減る", "減らす"], include: ["含む"],
+    possible: ["可能な"], impossible: ["不可能な"], strong: ["強い"], weak: ["弱い"], fast: ["速い"],
+    slow: ["遅い"], high: ["高い"], low: ["低い"], long: ["長い"], short: ["短い"],
+    hot: ["暑い", "熱い"], cold: ["寒い", "冷たい"], warm: ["暖かい"], cool: ["涼しい", "かっこいい"], clean: ["きれいな", "清潔な"],
+    dirty: ["汚い"], right: ["正しい", "右"], wrong: ["間違った"], true: ["本当の", "真実の"], false: ["誤った", "偽の"],
+    same: ["同じ"], different: ["異なる"], many: ["多くの"], few: ["少数の"], all: ["すべての"],
+    some: ["いくつかの"], first: ["最初の"], last: ["最後の"], next: ["次の"], early: ["早い"],
+    late: ["遅い"], always: ["いつも"], never: ["決してない"], often: ["しばしば"], sometimes: ["時々"],
+    now: ["今"], today: ["今日"], tomorrow: ["明日"], yesterday: ["昨日"], here: ["ここ"],
+    there: ["そこ", "あそこ"], why: ["なぜ"], how: ["どのように"], what: ["何"], who: ["誰"],
+    where: ["どこ"], when: ["いつ"], because: ["なぜなら", "なので"], before: ["前に"], after: ["後に"],
+    inside: ["内側", "中に"], outside: ["外側", "外に"], above: ["上に"], below: ["下に"], between: ["間に"],
+    achieve: ["達成する"], accomplish: ["達成する", "成し遂げる"], develop: ["発展させる", "開発する"], protect: ["守る"], support: ["支える", "支持する"]
+  });
+
+  function normalizeEnglishLookup(value) {
+    return normalize(value).replace(/^to\s+/, "").replace(/[^a-z0-9' -]/g, "").trim();
+  }
+
+  function hasJapaneseScript(value) {
+    return /[\u3040-\u30ff\u3400-\u9fff]/.test(String(value));
+  }
+
+  function meaningCandidatesFor(english) {
+    const key = normalizeEnglishLookup(english);
+    const candidates = [];
+    for (const word of state.words) {
+      if (normalizeEnglishLookup(word.english) === key) candidates.push(...splitAnswers(word.japanese));
+    }
+    if (COMMON_MEANINGS[key]) candidates.push(...COMMON_MEANINGS[key]);
+    return [...new Set(candidates.map((item) => item.trim()).filter(Boolean))];
+  }
+
+  function validateMeaning(english, japanese) {
+    const en = String(english).trim();
+    const ja = String(japanese).trim();
+    const candidates = meaningCandidatesFor(en);
+
+    if (!hasJapaneseScript(ja)) {
+      return {
+        warning: true,
+        reason: "日本語訳に日本語の文字が含まれていない。",
+        candidates
+      };
+    }
+
+    if (!candidates.length) return { warning: false, candidates: [] };
+    const enteredAnswers = splitAnswers(ja);
+    const matched = enteredAnswers.some((entered) =>
+      candidates.some((candidate) => isFlexibleJapaneseMatch(entered, candidate))
+    );
+    return matched
+      ? { warning: false, candidates }
+      : {
+          warning: true,
+          reason: "内蔵辞書または既存の登録訳と大きく異なる。",
+          candidates
+        };
+  }
+
+  function speakEnglish(text) {
+    const target = String(text || "").trim();
+    if (!target) return;
+    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      alert("このブラウザは音声読み上げに対応していない。");
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(target);
+    utterance.lang = "en-US";
+    utterance.rate = 0.82;
+    utterance.pitch = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const voice = voices.find((item) => /^en-US/i.test(item.lang))
+      || voices.find((item) => /^en/i.test(item.lang));
+    if (voice) utterance.voice = voice;
+    window.speechSynthesis.speak(utterance);
+  }
+
   function localDateString(date = new Date()) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -404,6 +518,96 @@
     return { ok: true, message: `「${en}」を追加した。` };
   }
 
+  function clearSingleMeaningWarning() {
+    state.pendingAddWarning = null;
+    const panel = $("#meaningWarning");
+    if (panel) panel.hidden = true;
+  }
+
+  function finishSingleAdd(result, focusEnglish = true) {
+    showNotice($("#addNotice"), result.message, result.ok ? "success" : "error");
+    if (!result.ok) return;
+    $("#englishInput").value = "";
+    $("#japaneseInput").value = "";
+    clearSingleMeaningWarning();
+    if (focusEnglish) $("#englishInput").focus();
+  }
+
+  function showSingleMeaningWarning(english, japanese, validation, focusEnglish) {
+    state.pendingAddWarning = {
+      english: english.trim(),
+      japanese: japanese.trim(),
+      suggested: validation.candidates.join("、"),
+      focusEnglish
+    };
+    const suggestion = validation.candidates.length
+      ? `<div class="meaning-warning-pair"><span class="meaning-warning-label">訂正候補</span><span class="meaning-suggestion">${escapeHtml(validation.candidates.join("、"))}</span></div>`
+      : `<p class="muted">この単語は内蔵辞書にないため訂正候補を自動生成できない。</p>`;
+    $("#meaningWarningBody").innerHTML =
+      `<p>${escapeHtml(validation.reason)}</p>` +
+      `<div class="meaning-warning-pair"><span class="meaning-warning-label">入力</span><span>${escapeHtml(english)} ＝ ${escapeHtml(japanese)}</span></div>` +
+      suggestion;
+    $("#useSuggestedMeaningBtn").hidden = !validation.candidates.length;
+    $("#meaningWarning").hidden = false;
+    $("#meaningWarning").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function attemptSingleAdd(focusEnglish = true) {
+    const english = $("#englishInput").value;
+    const japanese = $("#japaneseInput").value;
+    clearSingleMeaningWarning();
+
+    if (!english.trim() || !japanese.trim()) {
+      finishSingleAdd({ ok: false, message: "英語と日本語訳の両方を入力する必要がある。" }, focusEnglish);
+      return;
+    }
+
+    const validation = validateMeaning(english, japanese);
+    if (validation.warning) {
+      showNotice($("#addNotice"), "登録前に日本語訳を確認する必要がある。", "error");
+      showSingleMeaningWarning(english, japanese, validation, focusEnglish);
+      return;
+    }
+    finishSingleAdd(addWord(english, japanese), focusEnglish);
+  }
+
+  function clearBulkMeaningWarning() {
+    state.pendingBulkWarnings = [];
+    const panel = $("#bulkMeaningWarning");
+    if (panel) panel.hidden = true;
+  }
+
+  function showBulkMeaningWarnings(warnings) {
+    state.pendingBulkWarnings = warnings;
+    $("#bulkMeaningWarningList").innerHTML = warnings.map((item) => {
+      const suggestion = item.validation.candidates.length
+        ? item.validation.candidates.join("、")
+        : "訂正候補なし";
+      return `<div class="bulk-warning-item"><strong>${escapeHtml(item.english)}</strong><br>` +
+        `<span class="muted">入力:</span> ${escapeHtml(item.japanese)}<br>` +
+        `<span class="muted">候補:</span> ${escapeHtml(suggestion)}</div>`;
+    }).join("");
+    $("#useBulkSuggestedBtn").hidden = warnings.some((item) => !item.validation.candidates.length);
+    $("#bulkMeaningWarning").hidden = false;
+  }
+
+  function registerPendingBulk(useSuggested) {
+    const warnings = [...state.pendingBulkWarnings];
+    if (!warnings.length) return;
+    let added = 0;
+    let skipped = 0;
+    for (const item of warnings) {
+      const meaning = useSuggested && item.validation.candidates.length
+        ? item.validation.candidates.join("、")
+        : item.japanese;
+      const result = addWord(item.english, meaning);
+      result.ok ? added++ : skipped++;
+    }
+    clearBulkMeaningWarning();
+    $("#bulkInput").value = "";
+    showNotice($("#bulkNotice"), `${added}語を追加、${skipped}行をスキップした。`, added ? "success" : "error");
+  }
+
   function showNotice(target, message, type = "") {
     target.innerHTML = `<div class="notice ${type}">${escapeHtml(message)}</div>`;
   }
@@ -455,7 +659,7 @@
 
       return `
         <tr>
-          <td><strong>${escapeHtml(word.english)}</strong></td>
+          <td><div class="english-with-audio"><strong>${escapeHtml(word.english)}</strong><button class="speak-button" type="button" data-speak="${escapeHtml(word.english)}" aria-label="${escapeHtml(word.english)}の発音を聞く">🔊</button></div></td>
           <td>${escapeHtml(word.japanese)}</td>
           <td class="number">${word.correct}</td>
           <td class="number mistake-count">${word.mistakes}</td>
@@ -543,7 +747,7 @@
       const status = unanswered ? "未回答" : `${oldestDue}から期限`;
       return `
         <tr>
-          <td><strong>${escapeHtml(word.english)}</strong></td>
+          <td><div class="english-with-audio"><strong>${escapeHtml(word.english)}</strong><button class="speak-button" type="button" data-speak="${escapeHtml(word.english)}" aria-label="${escapeHtml(word.english)}の発音を聞く">🔊</button></div></td>
           <td>${escapeHtml(word.japanese)}</td>
           <td><span class="due-badge">${escapeHtml(status)}</span></td>
           <td class="number mistake-count">${word.mistakes}</td>
@@ -747,6 +951,8 @@
     $("#quizProgress").textContent = `${state.quizSessionIndex + 1} / ${state.quizSessionIds.length}`;
     $("#questionLabel").textContent = enToJa ? "日本語訳を入力" : "英語を入力";
     $("#questionText").textContent = enToJa ? word.english : word.japanese;
+    $("#speakQuestionBtn").hidden = !enToJa;
+    $("#speakQuestionBtn").dataset.speak = enToJa ? word.english : "";
     $("#answerInput").value = "";
     $("#answerInput").disabled = false;
     $("#checkBtn").hidden = false;
@@ -765,8 +971,11 @@
     setTimeout(() => $("#answerInput").focus(), 0);
   }
 
-  function correctAnswerMarkup(expected, label = "正しい答え") {
-    return `<div class="correct-answer-block"><span class="correct-answer-label">${escapeHtml(label)}</span><span class="correct-answer-value">${escapeHtml(expected)}</span></div>`;
+  function correctAnswerMarkup(expected, label = "正しい答え", englishText = "") {
+    const speakButton = englishText
+      ? `<button class="speak-button" type="button" data-speak="${escapeHtml(englishText)}">🔊 発音を聞く</button>`
+      : "";
+    return `<div class="correct-answer-block"><span class="correct-answer-label">${escapeHtml(label)}</span><span class="correct-answer-value">${escapeHtml(expected)}</span>${speakButton}</div>`;
   }
 
   function updateNextActionButton() {
@@ -797,7 +1006,7 @@
     word.correct += 1;
     if (currentQuizRange() === "today") completeDueReviews(word);
     saveData();
-    finishAnswer("correct", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected)}`);
+    finishAnswer("correct", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected, "正しい答え", state.currentDirection === "ja-en" ? expected : "")}`);
   }
 
   function recordWrongAnswer(word, expected, message = "不正解。") {
@@ -805,7 +1014,7 @@
     if (currentQuizRange() === "today") completeDueReviews(word);
     scheduleReview(word);
     saveData();
-    finishAnswer("wrong", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected)}`);
+    finishAnswer("wrong", `<strong>${escapeHtml(message)}</strong>${correctAnswerMarkup(expected, "正しい答え", state.currentDirection === "ja-en" ? expected : "")}`);
   }
 
   function requestManualJudgement(input, expected) {
@@ -879,7 +1088,7 @@
     if (currentQuizRange() === "today") completeDueReviews(word);
     scheduleReview(word);
     saveData();
-    finishAnswer("wrong", `<strong>答えを表示したため誤答として記録。</strong>${correctAnswerMarkup(expected)}`);
+    finishAnswer("wrong", `<strong>答えを表示したため誤答として記録。</strong>${correctAnswerMarkup(expected, "正しい答え", state.currentDirection === "ja-en" ? expected : "")}`);
   }
 
   function skipQuestion() {
@@ -1117,46 +1326,70 @@
   }
 
   function bindEvents() {
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-speak]");
+      if (!button) return;
+      event.preventDefault();
+      speakEnglish(button.dataset.speak);
+    });
     $$(".tab").forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
     $$('[data-open-tab]').forEach((button) => button.addEventListener("click", () => switchTab(button.dataset.openTab)));
 
     $("#addForm").addEventListener("submit", (event) => {
       event.preventDefault();
-      const result = addWord($("#englishInput").value, $("#japaneseInput").value);
-      showNotice($("#addNotice"), result.message, result.ok ? "success" : "error");
-      if (result.ok) {
-        $("#englishInput").value = "";
-        $("#japaneseInput").value = "";
-        $("#englishInput").focus();
-      }
+      attemptSingleAdd(true);
     });
 
-    $("#addAndContinueBtn").addEventListener("click", () => {
-      const result = addWord($("#englishInput").value, $("#japaneseInput").value);
-      showNotice($("#addNotice"), result.message, result.ok ? "success" : "error");
-      if (result.ok) {
-        $("#englishInput").value = "";
-        $("#japaneseInput").value = "";
-      }
-      $("#englishInput").focus();
+    $("#addAndContinueBtn").addEventListener("click", () => attemptSingleAdd(true));
+    $("#speakEnglishInputBtn").addEventListener("click", () => speakEnglish($("#englishInput").value));
+
+    $("#useSuggestedMeaningBtn").addEventListener("click", () => {
+      const pending = state.pendingAddWarning;
+      if (!pending || !pending.suggested) return;
+      finishSingleAdd(addWord(pending.english, pending.suggested), pending.focusEnglish);
+    });
+    $("#keepEnteredMeaningBtn").addEventListener("click", () => {
+      const pending = state.pendingAddWarning;
+      if (!pending) return;
+      finishSingleAdd(addWord(pending.english, pending.japanese), pending.focusEnglish);
+    });
+    $("#cancelMeaningWarningBtn").addEventListener("click", () => {
+      clearSingleMeaningWarning();
+      $("#japaneseInput").focus();
+      $("#japaneseInput").select();
     });
 
     $("#bulkAddBtn").addEventListener("click", () => {
+      clearBulkMeaningWarning();
       const lines = $("#bulkInput").value.split(/\r?\n/);
       let added = 0;
       let skipped = 0;
+      const warnings = [];
       for (const line of lines) {
         const parsed = parseBulkLine(line);
         if (!parsed) {
           if (line.trim()) skipped++;
           continue;
         }
-        const result = addWord(parsed[0], parsed[1]);
+        const english = parsed[0].trim();
+        const japanese = parsed[1].trim();
+        const validation = validateMeaning(english, japanese);
+        if (validation.warning) {
+          warnings.push({ english, japanese, validation });
+          continue;
+        }
+        const result = addWord(english, japanese);
         result.ok ? added++ : skipped++;
       }
-      showNotice($("#bulkNotice"), `${added}語を追加、${skipped}行をスキップした。`, added ? "success" : "error");
-      if (added) $("#bulkInput").value = "";
+      const warningText = warnings.length ? `、${warnings.length}語は意味確認待ち` : "";
+      showNotice($("#bulkNotice"), `${added}語を追加、${skipped}行をスキップ${warningText}。`, added ? "success" : (warnings.length ? "" : "error"));
+      if (warnings.length) showBulkMeaningWarnings(warnings);
+      else if (added) $("#bulkInput").value = "";
     });
+
+    $("#useBulkSuggestedBtn").addEventListener("click", () => registerPendingBulk(true));
+    $("#keepBulkOriginalBtn").addEventListener("click", () => registerPendingBulk(false));
+    $("#cancelBulkWarningBtn").addEventListener("click", clearBulkMeaningWarning);
 
 
     $("#copyAiPromptBtn").addEventListener("click", async () => {
