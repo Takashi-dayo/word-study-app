@@ -8,9 +8,9 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="manifest" href="./manifest.webmanifest?v=7.5" />
-  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=7.5" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=7.5" />
+  <link rel="manifest" href="./manifest.webmanifest?v=7.6" />
+  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=7.6" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=7.6" />
   <title>みんなの単語帳</title>
   <style>
     :root {
@@ -297,6 +297,47 @@
     .word-actions { display: flex; gap: 7px; }
     .empty { color: var(--muted); text-align: center; padding: 34px 12px; }
 
+    .list-heading-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 16px;
+    }
+    .list-heading-row h2 { margin: 0; }
+    .list-mode-switch {
+      flex: 0 0 auto;
+      border: 0;
+      padding: 8px 0 8px 14px;
+      background: transparent;
+      color: var(--text);
+      font-size: 1rem;
+      font-weight: 650;
+      letter-spacing: .01em;
+    }
+    .list-mode-switch:active { opacity: .62; }
+    .foresta-list-description { margin: -5px 0 16px; }
+    .foresta-list-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 28px;
+      margin: 2px 2px 10px;
+      color: var(--muted);
+      font-size: .82rem;
+      font-weight: 700;
+    }
+    table.foresta-word-list-table { min-width: 0; }
+    .foresta-number {
+      flex: 0 0 auto;
+      min-width: 2.15em;
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 760;
+      font-variant-numeric: tabular-nums;
+    }
+
     .notice { margin-top: 12px; padding: 12px 14px; border-radius: 13px; background: rgba(0,122,255,.10); }
     .notice.success { background: rgba(52,199,89,.11); }
     .notice.error { background: rgba(255,59,48,.11); }
@@ -386,6 +427,17 @@
       .chart-wrap { height: 220px; }
       .backup-banner { align-items: flex-start; flex-direction: column; }
       .manual-judge-actions { grid-template-columns: 1fr; }
+      .list-heading-row { align-items: baseline; margin-bottom: 18px; }
+      .list-mode-switch { font-size: .98rem; white-space: nowrap; }
+      table.foresta-word-list-table { min-width: 0; }
+      .foresta-word-list-table thead { display: none; }
+      .foresta-word-list-table, .foresta-word-list-table tbody, .foresta-word-list-table tr, .foresta-word-list-table td { display: block; width: 100%; }
+      .foresta-word-list-table tr { padding: 15px; border-bottom: 1px solid var(--line); }
+      .foresta-word-list-table tr:last-child { border-bottom: 0; }
+      .foresta-word-list-table td { border: 0; padding: 5px 0; text-align: left; }
+      .foresta-word-list-table td::before { content: attr(data-label); display: inline-block; min-width: 68px; color: var(--muted); font-size: .72rem; margin-right: 8px; }
+      .foresta-word-list-table .word-main-cell::before { display: none; }
+      .foresta-word-list-table .word-main-cell { font-size: 1.18rem; padding-bottom: 9px; }
       table.word-management-table { min-width: 0; }
       .word-management-table thead { display: none; }
       .word-management-table, .word-management-table tbody, .word-management-table tr, .word-management-table td { display: block; width: 100%; }
@@ -1120,12 +1172,29 @@
     </section>
 
     <section class="panel" id="panel-list">
-      <h2>全単語</h2>
-      <div class="table-tools">
-        <input id="searchInput" type="search" placeholder="英語・日本語で検索" />
-        <select id="listSort"><option value="newest">新しい順</option><option value="oldest">古い順</option><option value="english">英語 A–Z</option><option value="mistakes-desc">誤答が多い順</option><option value="accuracy-asc">正答率が低い順</option><option value="unanswered-first">未回答を先頭</option></select>
+      <div id="standardWordListView">
+        <div class="list-heading-row">
+          <h2>全単語</h2>
+          <button class="list-mode-switch" type="button" id="forestaListModeBtn">フォレスタモード</button>
+        </div>
+        <div class="table-tools">
+          <input id="searchInput" type="search" placeholder="英語・日本語で検索" />
+          <select id="listSort"><option value="newest">新しい順</option><option value="oldest">古い順</option><option value="english">英語 A–Z</option><option value="mistakes-desc">誤答が多い順</option><option value="accuracy-asc">正答率が低い順</option><option value="unanswered-first">未回答を先頭</option></select>
+        </div>
+        <div id="wordTable"></div><div id="listNotice" aria-live="polite"></div>
       </div>
-      <div id="wordTable"></div><div id="listNotice" aria-live="polite"></div>
+
+      <div id="forestaWordListView" hidden>
+        <button class="back-link foresta-back" type="button" id="exitForestaListModeBtn">‹ 通常の全単語へ戻る</button>
+        <h2>全単語（フォレスタモード）</h2>
+        <p class="muted foresta-list-description">級・段を選択すると、その範囲に収録された単語を教材順で表示する。</p>
+        <div class="table-tools">
+          <select id="forestaListLevel" aria-label="表示する級・段"></select>
+          <input id="forestaListSearch" type="search" placeholder="英語・日本語で検索" />
+        </div>
+        <div class="foresta-list-meta" id="forestaListCount" aria-live="polite"></div>
+        <div id="forestaWordTable"></div>
+      </div>
     </section>
 
     <section class="panel" id="panel-analysis">
@@ -1184,9 +1253,9 @@
 
   <dialog id="editDialog"><form method="dialog" class="dialog-inner" id="editForm"><h2>単語を編集</h2><input type="hidden" id="editId" /><div class="grid"><div><label for="editEnglish">英語</label><input id="editEnglish" autocapitalize="none" spellcheck="true" required /></div><div><label for="editJapanese">日本語訳</label><input id="editJapanese" required /></div></div><div class="button-row"><button class="btn primary" value="save" type="submit">保存</button><button class="btn ghost" value="cancel" type="button" id="cancelEditBtn">キャンセル</button></div></form></dialog>
 
-  <script src="./spell-dictionary.js?v=7.5" defer></script>
-  <script src="./foresta-questions.js?v=7.5" defer></script>
-  <script src="./app.js?v=7.5" defer></script>
+  <script src="./spell-dictionary.js?v=7.6" defer></script>
+  <script src="./foresta-questions.js?v=7.6" defer></script>
+  <script src="./app.js?v=7.6" defer></script>
   <script>
     window.addEventListener("load", () => {
       const input = document.getElementById("quizCount");
