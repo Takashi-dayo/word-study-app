@@ -1446,6 +1446,7 @@
     $("#manualJudgeRow").hidden = true;
     $("#quizNextRow").hidden = false;
     updateNextActionButton();
+    $("#nextBtn").classList.toggle("wrong-action", result === "wrong");
     $("#feedback").hidden = false;
     $("#feedback").className = `feedback ${result}`;
     $("#feedback").innerHTML = message;
@@ -1480,7 +1481,7 @@
     );
   }
 
-  function requestManualJudgement(input, expected) {
+  function requestManualJudgement(expected) {
     state.manualJudgePending = true;
     $("#answerInput").disabled = true;
     $("#checkBtn").hidden = true;
@@ -1492,8 +1493,6 @@
     $("#feedback").hidden = false;
     $("#feedback").className = "feedback";
     $("#feedback").innerHTML =
-      `<strong>自動では判定できない。</strong><br>` +
-      `入力: ${escapeHtml(input)}` +
       correctAnswerMarkup(expected, "登録された答え") +
       `<span class="muted">意味が合っている場合は「正解として扱う」を押す。</span>`;
     if (!isCoarsePointerDevice()) focusWithoutPageScroll($("#markCorrectBtn"));
@@ -1537,7 +1536,7 @@
     if (correct) {
       recordCorrectAnswer(word, expected);
     } else if (state.currentDirection === "en-ja" && !strict) {
-      requestManualJudgement(input, expected);
+      requestManualJudgement(expected);
     } else {
       recordWrongAnswer(word, expected);
     }

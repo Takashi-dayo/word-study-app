@@ -8,9 +8,9 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="manifest" href="./manifest.webmanifest?v=8.1" />
-  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=8.1" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=8.1" />
+  <link rel="manifest" href="./manifest.webmanifest?v=8.2" />
+  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=8.2" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=8.2" />
   <title>みんなの単語帳</title>
   <style>
     :root {
@@ -258,7 +258,7 @@
     body.quiz-playing .bottom-backup { display: none !important; }
     body.quiz-playing .app { padding-top: max(14px, env(safe-area-inset-top)); }
     body.quiz-playing #panel-quiz.active { min-height: calc(100vh - var(--dock-height) - 86px - env(safe-area-inset-bottom)); }
-    .quiz-card { padding: clamp(20px, 5vw, 40px); min-height: 410px; display: grid; align-content: center; text-align: center; }
+    .quiz-card { padding: clamp(20px, 5vw, 40px); min-height: 410px; display: grid; align-content: start; text-align: center; }
     .quiz-progress, .question-label { color: var(--muted); font-size: .83rem; font-weight: 700; }
     .question-line { display: flex; align-items: center; justify-content: center; gap: 9px; margin: 10px 0 14px; }
     .question { min-width: 0; font-size: clamp(2.5rem, 10vw, 5.4rem); line-height: 1.05; font-weight: 760; overflow-wrap: anywhere; letter-spacing: -.045em; }
@@ -284,6 +284,7 @@
     .result-status.wrong { color: var(--red); }
     .result-note { margin-top: 9px; text-align: center; color: var(--muted); font-size: .9rem; font-weight: 650; }
     .correct-answer-card { margin-top: 18px; padding: clamp(18px, 4vw, 28px); border-radius: 20px; background: var(--surface-solid); border: 2px solid var(--blue); text-align: center; color: var(--text); }
+    .feedback > .correct-answer-card:first-child { margin-top: 0; }
     .feedback.correct .correct-answer-card { border-color: var(--green); }
     .feedback.wrong .correct-answer-card { border-color: var(--red); }
     .correct-answer-label { display: block; color: var(--muted); font-size: clamp(.95rem, 3vw, 1.15rem); font-weight: 750; }
@@ -1080,6 +1081,11 @@
     }
     body[data-accent="today"] #quizNextRow:not([hidden]) #nextBtn { background: var(--green); }
     #quizNextRow:not([hidden]) #nextBtn.finish-action { background: var(--green); }
+    #quizNextRow:not([hidden]) #nextBtn.wrong-action,
+    body[data-accent="today"] #quizNextRow:not([hidden]) #nextBtn.wrong-action {
+      background: linear-gradient(180deg, #ff625a, #e23b34);
+      box-shadow: 0 8px 22px rgba(255, 69, 58, .32);
+    }
     @media (max-width: 520px) {
       .single-character-panel { padding: 10px; }
       .single-character-fields { gap: 6px; }
@@ -1215,7 +1221,7 @@
               <label for="answerInput">回答</label><div class="single-character-panel" id="singleCharacterPanel"><div class="single-character-fields" id="singleCharacterFields" aria-label="英語を1文字ずつ入力"></div><p class="single-character-hint">1文字ごとに入力欄が分かれる。削除はBackspace。</p></div><input id="answerInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" enterkeyhint="done" name="quiz-answer-no-autofill" placeholder="答えを入力" />
               <div class="button-row"><button class="btn primary" type="button" id="checkBtn">答え合わせ</button><button class="btn ghost" type="button" id="showAnswerBtn">答えを見る</button></div>
               <div class="feedback" id="feedback" aria-live="polite" hidden></div>
-              <div class="manual-judge-panel" id="manualJudgeRow" hidden><div class="manual-judge-title">この回答をどう記録するか選択</div><div class="manual-judge-actions"><button class="btn approve" type="button" id="markCorrectBtn">正解として扱う</button><button class="btn reject" type="button" id="markWrongBtn">不正解として記録</button></div></div>
+              <div class="manual-judge-panel" id="manualJudgeRow" hidden><div class="manual-judge-actions"><button class="btn approve" type="button" id="markCorrectBtn">正解として扱う</button><button class="btn reject" type="button" id="markWrongBtn">不正解として記録</button></div></div>
             </div>
           </div>
         </div>
@@ -1351,9 +1357,9 @@
 
   <dialog id="editDialog"><form method="dialog" class="dialog-inner" id="editForm"><h2>単語を編集</h2><input type="hidden" id="editId" /><div class="grid"><div><label for="editEnglish">英語</label><input id="editEnglish" autocapitalize="none" spellcheck="true" required /></div><div><label for="editJapanese">日本語訳</label><input id="editJapanese" required /></div></div><div class="button-row"><button class="btn primary" value="save" type="submit">保存</button><button class="btn ghost" value="cancel" type="button" id="cancelEditBtn">キャンセル</button></div></form></dialog>
 
-  <script src="./spell-dictionary.js?v=8.1" defer></script>
-  <script src="./foresta-questions.js?v=8.1" defer></script>
-  <script src="./app.js?v=8.1" defer></script>
+  <script src="./spell-dictionary.js?v=8.2" defer></script>
+  <script src="./foresta-questions.js?v=8.2" defer></script>
+  <script src="./app.js?v=8.2" defer></script>
   <script>
     window.addEventListener("load", () => {
       const input = document.getElementById("quizCount");
