@@ -1305,7 +1305,7 @@
   }
 
   function showQuizEmpty(message, action = "add") {
-    $("#quizCard").classList.remove("answer-wrong");
+    $("#quizCard").classList.remove("answer-correct", "answer-wrong");
     $("#quizEmpty").hidden = false;
     $("#quizContent").hidden = true;
     $("#quizEmpty .empty").textContent = message;
@@ -1437,7 +1437,7 @@
     $("#feedback").className = "feedback";
     $("#feedback").textContent = "";
     $("#feedback").hidden = true;
-    $("#quizCard").classList.remove("answer-wrong");
+    $("#quizCard").classList.remove("answer-correct", "answer-wrong");
     state.answered = false;
     state.manualJudgePending = false;
     setTimeout(() => focusWithoutPageScroll($("#answerInput")), 0);
@@ -1480,6 +1480,7 @@
     $("#feedback").hidden = false;
     $("#feedback").className = `feedback ${result}`;
     $("#feedback").innerHTML = message;
+    $("#quizCard").classList.toggle("answer-correct", result === "correct");
     $("#quizCard").classList.toggle("answer-wrong", result === "wrong");
     if (!isCoarsePointerDevice()) focusWithoutPageScroll($("#nextBtn"));
   }
