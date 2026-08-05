@@ -8,9 +8,9 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="manifest" href="./manifest.webmanifest?v=8.2" />
-  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=8.2" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=8.2" />
+  <link rel="manifest" href="./manifest.webmanifest?v=8.4" />
+  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=8.4" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=8.4" />
   <title>みんなの単語帳</title>
   <style>
     :root {
@@ -105,7 +105,7 @@
     .panel.active { display: block; }
     @keyframes panel-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 
-    .glass-card, .card, .stat-card, .quiz-card, .status-card, .privacy-box, .notification-settings, .registration-warning, .analysis-card {
+    .glass-card, .card, .stat-card, .quiz-card, .status-card, .privacy-box, .notification-settings, .account-settings, .registration-warning, .analysis-card {
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: var(--radius-lg);
@@ -385,12 +385,17 @@
     .chart-wrap { position: relative; width: 100%; height: 250px; }
     .chart-wrap canvas { width: 100%; height: 100%; display: block; }
     .analysis-note { margin-top: 10px; color: var(--muted); font-size: .78rem; }
-    .privacy-box, .notification-settings { padding: 18px; box-shadow: none; margin-top: 16px; }
+    .privacy-box, .notification-settings, .account-settings { padding: 18px; box-shadow: none; margin-top: 16px; }
     .status-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
     .status-card { padding: 16px; box-shadow: none; }
     .status-title, .status-detail { color: var(--muted); font-size: .78rem; }
     .status-main { font-size: 1.02rem; font-weight: 750; margin: 3px 0; }
     .notification-times { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+    .account-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+    .account-identity { padding: 13px 14px; border-radius: 14px; background: var(--surface-soft); }
+    .account-identity strong { display: block; overflow-wrap: anywhere; }
+    .account-sync-state { margin-top: 10px; min-height: 1.4em; }
+    .cloud-conflict { margin-top: 12px; padding: 14px; border: 1px solid rgba(255,149,0,.35); border-radius: 14px; background: rgba(255,149,0,.09); }
 
     .backup-banner {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -429,6 +434,39 @@
     .settings-head h2 { margin: 0; }
     .dialog-inner { background: var(--surface-solid); border: 1px solid var(--line); border-radius: 25px; padding: 22px; box-shadow: var(--shadow-strong); }
     #editDialog { width: min(520px, calc(100% - 20px)); }
+    .account-prompt-dialog { width: min(520px, calc(100% - 24px)); }
+    .account-prompt-sheet {
+      overflow: hidden; position: relative; padding: clamp(24px, 6vw, 34px);
+      background: var(--surface-solid); border: 1px solid rgba(0,122,255,.24); border-radius: 30px;
+      box-shadow: var(--shadow-strong); text-align: center;
+    }
+    .account-prompt-sheet::before {
+      content: ""; position: absolute; width: 260px; height: 260px; border-radius: 50%;
+      top: -180px; left: 50%; transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(0,122,255,.22), rgba(0,122,255,0));
+      pointer-events: none;
+    }
+    .account-prompt-icon {
+      position: relative; width: 78px; height: 78px; margin: 0 auto 18px; border-radius: 24px;
+      display: grid; place-items: center; color: #fff;
+      background: linear-gradient(145deg, #35baf5, #087cff);
+      box-shadow: 0 16px 34px rgba(0,122,255,.28);
+    }
+    .account-prompt-icon svg { width: 43px; height: 43px; }
+    .account-prompt-sheet h2 { position: relative; margin: 0 0 9px; font-size: clamp(1.35rem, 5vw, 1.75rem); }
+    .account-prompt-lead { margin: 0 auto 18px; max-width: 390px; color: var(--muted); line-height: 1.65; }
+    .account-prompt-benefits { display: grid; gap: 9px; margin: 0 0 20px; padding: 0; list-style: none; text-align: left; }
+    .account-prompt-benefits li {
+      display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+      border-radius: 14px; background: var(--surface-soft); font-weight: 680;
+    }
+    .account-prompt-check {
+      flex: 0 0 24px; width: 24px; height: 24px; border-radius: 50%;
+      display: grid; place-items: center; color: var(--green); background: rgba(52,199,89,.13);
+    }
+    .account-prompt-actions { display: grid; gap: 9px; }
+    .account-prompt-actions .btn { width: 100%; min-height: 48px; }
+    .account-prompt-note { margin: 12px 0 0; color: var(--muted); font-size: .74rem; }
 
     /* 通常時は保存保護警告を表示しない。実際の保存失敗は設定画面の状態で確認できる。 */
     #storageWarning { display: none !important; }
@@ -439,7 +477,7 @@
       .summary { grid-template-columns: repeat(2, minmax(0,1fr)); }
       .quiz-toolbar { grid-template-columns: repeat(2,minmax(0,1fr)); }
       .grid-2, .registration-choice, .status-grid { grid-template-columns: 1fr; }
-      .notification-times { grid-template-columns: 1fr; }
+      .notification-times, .account-fields { grid-template-columns: 1fr; }
       .table-tools { flex-direction: column; }
       .table-tools select { width: 100%; }
       .choice-card { min-height: 150px; }
@@ -590,9 +628,9 @@
       box-shadow: inset 0 1px rgba(255,255,255,.12), 0 10px 24px rgba(0,104,255,.12);
     }
     .today-heading .screen-icon {
-      color: #86e5a2;
-      background: linear-gradient(145deg, rgba(49, 145, 80, .36), rgba(17, 78, 43, .46));
-      box-shadow: inset 0 1px rgba(255,255,255,.12), 0 10px 24px rgba(53,199,89,.10);
+      color: #ffe18a;
+      background: linear-gradient(145deg, rgba(181, 131, 27, .40), rgba(91, 61, 8, .52));
+      box-shadow: inset 0 1px rgba(255,255,255,.12), 0 10px 24px rgba(255,190,43,.12);
     }
     .screen-lead {
       margin: 0 2px 13px;
@@ -600,7 +638,7 @@
       font-size: .96rem;
     }
 
-    .glass-card, .card, .stat-card, .quiz-card, .status-card, .privacy-box, .notification-settings, .registration-warning, .analysis-card,
+    .glass-card, .card, .stat-card, .quiz-card, .status-card, .privacy-box, .notification-settings, .account-settings, .registration-warning, .analysis-card,
     .today-guide, .setting-card {
       background: linear-gradient(145deg, rgba(25, 31, 38, .90), rgba(15, 20, 26, .92));
       border: 1px solid rgba(255,255,255,.09);
@@ -617,7 +655,7 @@
       color: var(--text);
       text-align: center;
       background:
-        radial-gradient(circle at 74% 16%, rgba(40, 111, 79, .12), transparent 13rem),
+        radial-gradient(circle at 74% 16%, rgba(194, 139, 28, .14), transparent 13rem),
         linear-gradient(145deg, rgba(12, 22, 32, .98), rgba(8, 16, 24, .98));
       border: 1px solid rgba(119, 145, 166, .36);
       border-radius: 20px;
@@ -643,9 +681,9 @@
       place-items: center;
       flex: 0 0 auto;
       border-radius: 12px;
-      color: #81e29d;
-      background: linear-gradient(145deg, rgba(33, 134, 70, .52), rgba(10, 67, 37, .62));
-      box-shadow: inset 0 1px rgba(255,255,255,.12), 0 9px 20px rgba(28, 172, 76, .14);
+      color: #ffe082;
+      background: linear-gradient(145deg, rgba(180, 128, 24, .56), rgba(86, 57, 6, .66));
+      box-shadow: inset 0 1px rgba(255,255,255,.12), 0 9px 20px rgba(255, 184, 36, .15);
     }
     .today-card-icon svg { width: 24px; height: 24px; }
     .today-label {
@@ -675,12 +713,12 @@
       letter-spacing: -.04em;
     }
     .today-number {
-      color: #64d184;
+      color: #ffd45f;
       font-size: clamp(4.1rem, 19vw, 5.8rem);
       line-height: .9;
       font-weight: 850;
       letter-spacing: -.07em;
-      text-shadow: 0 0 30px rgba(70, 213, 118, .18);
+      text-shadow: 0 0 30px rgba(255, 202, 62, .20);
     }
     .today-goal {
       margin-top: 7px;
@@ -705,11 +743,11 @@
       vector-effect: non-scaling-stroke;
       stroke-linecap: round;
     }
-    .today-wave-lines .wave-1 { stroke: rgba(57, 209, 105, .43); stroke-width: 1.35; }
-    .today-wave-lines .wave-2 { stroke: rgba(43, 166, 91, .31); stroke-width: 1.15; }
-    .today-wave-lines .wave-3 { stroke: rgba(65, 223, 119, .20); stroke-width: 1; }
-    .today-wave-lines .wave-4 { stroke: rgba(31, 123, 76, .28); stroke-width: 1.05; }
-    .today-wave-lines .wave-5 { stroke: rgba(71, 190, 111, .14); stroke-width: .9; }
+    .today-wave-lines .wave-1 { stroke: rgba(255, 204, 68, .46); stroke-width: 1.35; }
+    .today-wave-lines .wave-2 { stroke: rgba(232, 172, 40, .34); stroke-width: 1.15; }
+    .today-wave-lines .wave-3 { stroke: rgba(255, 220, 104, .22); stroke-width: 1; }
+    .today-wave-lines .wave-4 { stroke: rgba(181, 126, 19, .30); stroke-width: 1.05; }
+    .today-wave-lines .wave-5 { stroke: rgba(244, 188, 62, .16); stroke-width: .9; }
 
     .setting-stack {
       display: grid;
@@ -736,8 +774,8 @@
     }
     .setting-icon svg { width: 24px; height: 24px; }
     .today-setting-card .setting-icon {
-      color: #8de4a5;
-      background: linear-gradient(145deg, rgba(49, 145, 80, .36), rgba(17, 78, 43, .50));
+      color: #ffe28b;
+      background: linear-gradient(145deg, rgba(181, 131, 27, .40), rgba(91, 61, 8, .54));
     }
     .setting-control { flex: 1; min-width: 0; }
     .setting-control label {
@@ -760,7 +798,7 @@
     .setting-control select:focus,
     .setting-control input:focus { border-color: rgba(58,151,255,.75); box-shadow: 0 0 0 3px rgba(22,132,255,.14); }
     .today-setting-card .setting-control select:focus,
-    .today-setting-card .setting-control input:focus { border-color: rgba(95,207,131,.75); box-shadow: 0 0 0 3px rgba(95,207,131,.13); }
+    .today-setting-card .setting-control input:focus { border-color: rgba(255,205,76,.82); box-shadow: 0 0 0 3px rgba(255,196,50,.14); }
     .count-choice-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -815,8 +853,9 @@
     }
     .btn.primary.quiz-launch { background: linear-gradient(180deg, #248cff, #0868df); }
     .btn.primary.today-launch {
-      background: linear-gradient(180deg, #67d68b, #42af67);
-      box-shadow: 0 15px 34px rgba(47, 184, 92, .18), inset 0 1px rgba(255,255,255,.20);
+      color: #302300;
+      background: linear-gradient(180deg, #ffdd72, #e9aa22);
+      box-shadow: 0 15px 34px rgba(230, 165, 30, .20), inset 0 1px rgba(255,255,255,.24);
     }
     .launch-icon {
       width: 21px;
@@ -830,7 +869,7 @@
       padding-left: 1px;
     }
     .quiz-launch .launch-icon { color: #147cf1; }
-    .today-launch .launch-icon { color: #42ad66; }
+    .today-launch .launch-icon { color: #b17608; }
 
     .quiz-toolbar.today-mode { max-width: none; }
     .quiz-setup-card, .quiz-setup-actions { display: contents; }
@@ -853,10 +892,19 @@
     }
     body[data-accent="today"] .quiz-card {
       background:
-        radial-gradient(circle at 50% 12%, rgba(78, 199, 116, .09), transparent 15rem),
-        linear-gradient(145deg, rgba(23, 31, 28, .97), rgba(12, 18, 15, .97));
-      border-color: rgba(85, 211, 125, .68);
-      box-shadow: inset 0 1px rgba(255,255,255,.05), 0 0 0 1px rgba(42,133,72,.12), 0 0 24px rgba(69,199,108,.26), 0 22px 58px rgba(0,0,0,.35);
+        radial-gradient(circle at 50% 12%, rgba(255, 204, 76, .10), transparent 15rem),
+        linear-gradient(145deg, rgba(31, 28, 20, .97), rgba(18, 16, 11, .97));
+      border-color: rgba(255, 207, 85, .72);
+      box-shadow: inset 0 1px rgba(255,255,255,.05), 0 0 0 1px rgba(170,118,18,.14), 0 0 24px rgba(255,194,51,.27), 0 22px 58px rgba(0,0,0,.35);
+    }
+    .quiz-card.answer-correct,
+    body[data-accent="today"] .quiz-card.answer-correct {
+      border-color: var(--green);
+      box-shadow:
+        inset 0 1px rgba(255,255,255,.05),
+        0 0 0 1px rgba(95,207,131,.22),
+        0 0 28px rgba(95,207,131,.34),
+        0 22px 58px rgba(0,0,0,.35);
     }
     .quiz-card.answer-wrong,
     body[data-accent="today"] .quiz-card.answer-wrong {
@@ -892,11 +940,11 @@
     #answerInput {
       -webkit-text-security: none;
     }
-    body[data-accent="today"] #answerInput:focus { border-color: rgba(95,207,131,.85); box-shadow: 0 0 0 3px rgba(95,207,131,.14); }
+    body[data-accent="today"] #answerInput:focus { border-color: rgba(255,205,76,.88); box-shadow: 0 0 0 3px rgba(255,196,50,.15); }
     .inline-check { margin: 18px 0 20px; }
     .quiz-answer .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 0; }
     .quiz-answer .button-row .btn { min-height: 58px; border-radius: 13px; }
-    body[data-accent="today"] #checkBtn { background: linear-gradient(180deg, #64d389, #3eaa63); }
+    body[data-accent="today"] #checkBtn { color: #302300; background: linear-gradient(180deg, #ffdc70, #e6a720); }
     #showAnswerBtn { background: rgba(18,24,30,.80); border-color: rgba(255,255,255,.12); }
     .feedback { min-height: 0; background: rgba(5,9,13,.48); }
     .correct-answer-card { background: rgba(8,12,16,.78); }
@@ -935,8 +983,8 @@
     .settings-launch svg, .tab svg { width: 22px; height: 22px; }
     .tab.active { color: #4ea8ff; background: linear-gradient(180deg, rgba(33,115,220,.28), rgba(18,62,121,.22)); }
     body[data-accent="today"] .tab[data-tab="today"].active {
-      color: #65d488;
-      background: linear-gradient(180deg, rgba(51,145,82,.28), rgba(22,76,42,.24));
+      color: #ffd45f;
+      background: linear-gradient(180deg, rgba(184,132,27,.30), rgba(94,63,8,.27));
     }
     .settings-launch span, .tab span { font-size: .59rem; }
 
@@ -1004,10 +1052,10 @@
       border-color: rgba(42,144,255,.85);
       box-shadow: 0 0 0 3px rgba(22,132,255,.15);
     }
-    body[data-accent="today"] .single-character-field { caret-color: var(--green); }
+    body[data-accent="today"] .single-character-field { caret-color: #f4bd36; }
     body[data-accent="today"] .single-character-field:focus {
-      border-color: rgba(95,207,131,.85);
-      box-shadow: 0 0 0 3px rgba(95,207,131,.14);
+      border-color: rgba(255,205,76,.88);
+      box-shadow: 0 0 0 3px rgba(255,196,50,.15);
     }
     .single-character-field:disabled { opacity: .62; }
     .single-character-hint {
@@ -1024,8 +1072,8 @@
       box-shadow: 0 0 0 3px rgba(22,132,255,.15);
     }
     body[data-accent="today"] .single-character-field.active {
-      border-color: rgba(95,207,131,.85);
-      box-shadow: 0 0 0 3px rgba(95,207,131,.14);
+      border-color: rgba(255,205,76,.88);
+      box-shadow: 0 0 0 3px rgba(255,196,50,.15);
     }
     .single-character-field.disabled { opacity: .62; }
     body[data-single-character-answer="true"] #answerInput {
@@ -1079,7 +1127,7 @@
       font-size: .95rem;
       font-weight: 780;
     }
-    body[data-accent="today"] #quizNextRow:not([hidden]) #nextBtn { background: var(--green); }
+    body[data-accent="today"] #quizNextRow:not([hidden]) #nextBtn { color: #302300; background: linear-gradient(180deg, #ffdc70, #e6a720); }
     #quizNextRow:not([hidden]) #nextBtn.finish-action { background: var(--green); }
     #quizNextRow:not([hidden]) #nextBtn.wrong-action,
     body[data-accent="today"] #quizNextRow:not([hidden]) #nextBtn.wrong-action {
@@ -1338,6 +1386,31 @@
     </div>
   </nav>
 
+  <dialog id="accountPromptDialog" class="account-prompt-dialog" aria-labelledby="accountPromptTitle">
+    <div class="account-prompt-sheet">
+      <div class="account-prompt-icon" aria-hidden="true">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3">
+          <circle cx="24" cy="17" r="8"></circle>
+          <path d="M10 39c1.8-8 7-12 14-12s12.2 4 14 12"></path>
+          <path d="M35 8.5h6v6"></path>
+          <path d="M41 8.5l-7.5 7.5"></path>
+        </svg>
+      </div>
+      <h2 id="accountPromptTitle">学習データを引き継げます</h2>
+      <p class="account-prompt-lead">アカウントを作ると、追加した単語と学習状況をクラウドへ保存し、HTML版とAndroid版のどちらでも利用できます。</p>
+      <ul class="account-prompt-benefits">
+        <li><span class="account-prompt-check">✓</span><span>追加単語と学習状況を自動同期</span></li>
+        <li><span class="account-prompt-check">✓</span><span>機種変更や端末故障に備えられる</span></li>
+        <li><span class="account-prompt-check">✓</span><span>メール確認済みの本人だけがアクセス</span></li>
+      </ul>
+      <div class="account-prompt-actions">
+        <button class="btn primary" type="button" id="accountPromptOpenBtn">ログイン・新規登録へ</button>
+        <button class="btn ghost" type="button" id="accountPromptLaterBtn">今はしない</button>
+      </div>
+      <p class="account-prompt-note">ログインしなくても、端末内だけで学習を続けられます。</p>
+    </div>
+  </dialog>
+
   <dialog id="settingsDialog" class="settings-dialog">
     <div class="settings-sheet">
       <div class="settings-head"><h2>設定</h2><button class="icon-button" id="settingsCloseBtn" type="button" aria-label="閉じる">×</button></div>
@@ -1348,18 +1421,58 @@
         <div class="status-card"><div class="status-title">最終バックアップ</div><div class="status-main" id="lastBackupStatus">未実施</div><div class="status-detail" id="backupChangeStatus"></div></div>
         <div class="status-card"><div class="status-title">使用容量</div><div class="status-main" id="storageUsageStatus">確認中</div><div class="status-detail">ブラウザが報告できる場合のみ</div></div>
       </div>
+      <div class="account-settings" id="accountSettings">
+        <h3>アカウントとクラウド同期</h3>
+        <p class="muted">メール確認済みの本人だけが、追加単語と学習状況を自分の領域へ保存できる。</p>
+        <div id="accountUnavailable">
+          <div class="status-detail" id="accountUnavailableText">クラウドへの接続状態を確認中</div>
+        </div>
+        <div id="accountSignedOut" hidden>
+          <div class="account-fields">
+            <div><label for="accountEmail">メールアドレス</label><input id="accountEmail" type="email" autocomplete="email" /></div>
+            <div><label for="accountPassword">パスワード</label><input id="accountPassword" type="password" minlength="8" autocomplete="current-password" /></div>
+          </div>
+          <div class="button-row">
+            <button class="btn primary" type="button" id="accountSignInBtn">ログイン</button>
+            <button class="btn ghost" type="button" id="accountSignUpBtn">新規作成</button>
+            <button class="btn ghost small" type="button" id="accountResetPasswordBtn">パスワード再設定</button>
+          </div>
+        </div>
+        <div id="accountSignedIn" hidden>
+          <div class="account-identity"><span class="status-detail">ログイン中</span><strong id="accountEmailDisplay"></strong><span class="status-detail" id="accountVerificationState"></span></div>
+          <div id="accountVerificationActions" class="button-row" hidden>
+            <button class="btn primary" type="button" id="accountRefreshVerificationBtn">確認済みか再確認</button>
+            <button class="btn ghost" type="button" id="accountResendVerificationBtn">確認メールを再送</button>
+          </div>
+          <div id="accountSyncActions" class="button-row" hidden>
+            <button class="btn primary" type="button" id="accountSyncNowBtn">今すぐ同期</button>
+            <button class="btn ghost" type="button" id="accountSignOutBtn">ログアウト</button>
+            <button class="btn danger small" type="button" id="accountDeleteBtn">アカウントを削除</button>
+          </div>
+          <div class="cloud-conflict" id="cloudConflict" hidden>
+            <strong>端末とクラウドの内容が異なる</strong>
+            <p class="muted">初回だけ、どちらを基準にするか選ぶ。選んだ後は自動同期する。</p>
+            <div class="button-row">
+              <button class="btn primary" type="button" id="useDeviceDataBtn">この端末を使う</button>
+              <button class="btn ghost" type="button" id="useCloudDataBtn">クラウドを使う</button>
+            </div>
+          </div>
+        </div>
+        <div class="account-sync-state status-detail" id="accountSyncState" aria-live="polite"></div>
+      </div>
       <div class="notification-settings"><h3>今日の単語の通知</h3><p class="muted">任意の時刻を最大3件設定できる。アプリ終了中の通知は端末・ブラウザによって制限される。</p><div class="notification-times"><div><label for="notificationTime1">通知1</label><input type="time" id="notificationTime1" /></div><div><label for="notificationTime2">通知2</label><input type="time" id="notificationTime2" /></div><div><label for="notificationTime3">通知3</label><input type="time" id="notificationTime3" /></div></div><div class="button-row"><button class="btn primary" type="button" id="saveNotificationSettingsBtn">通知を有効化</button><button class="btn ghost" type="button" id="disableNotificationsBtn">無効化</button></div><div class="status-detail" id="notificationStatus"></div></div>
       <div class="button-row"><button class="btn primary" type="button" id="exportBtn2">JSONバックアップ</button><label class="btn ghost" style="display:inline-flex;align-items:center">バックアップを読み込む<input id="importInput" type="file" accept=".json,application/json" hidden /></label><button class="btn ghost" type="button" id="exportCsvBtn">CSVを書き出す</button><button class="btn ghost" type="button" id="retryPersistBtn2">保存保護を再試行</button><button class="btn danger" type="button" id="clearAllBtn">全データを削除</button></div>
       <div id="dataNotice" aria-live="polite"></div>
-      <div class="privacy-box"><h3>保存上の注意</h3><p>データは現在のブラウザと公開URLに紐づく。ブラウザ変更、URL変更、サイトデータ削除、端末故障時はJSONバックアップから復元する。</p><p class="muted">アカウント・クラウドDB・アクセス解析は使用しない。</p></div>
+      <div class="privacy-box"><h3>保存上の注意</h3><p>ローカルデータは現在のブラウザと公開URLに保存される。ログイン後は追加単語と学習状況を本人専用のクラウド領域へ同期できる。</p><p class="muted">アクセス解析は使用しない。念のためJSONバックアップも併用できる。</p></div>
     </div>
   </dialog>
 
   <dialog id="editDialog"><form method="dialog" class="dialog-inner" id="editForm"><h2>単語を編集</h2><input type="hidden" id="editId" /><div class="grid"><div><label for="editEnglish">英語</label><input id="editEnglish" autocapitalize="none" spellcheck="true" required /></div><div><label for="editJapanese">日本語訳</label><input id="editJapanese" required /></div></div><div class="button-row"><button class="btn primary" value="save" type="submit">保存</button><button class="btn ghost" value="cancel" type="button" id="cancelEditBtn">キャンセル</button></div></form></dialog>
 
-  <script src="./spell-dictionary.js?v=8.2" defer></script>
-  <script src="./foresta-questions.js?v=8.2" defer></script>
-  <script src="./app.js?v=8.2" defer></script>
+  <script src="./spell-dictionary.js?v=8.4" defer></script>
+  <script src="./foresta-questions.js?v=8.4" defer></script>
+  <script src="./firebase-account.js?v=8.4" defer></script>
+  <script src="./app.js?v=8.4" defer></script>
   <script>
     window.addEventListener("load", () => {
       const input = document.getElementById("quizCount");

@@ -7,6 +7,7 @@
   const RECORD_KEY = "main";
   const LEGACY_STORAGE_KEYS = ["custom-word-study-app-v1", "custom-word-study-app-v2"];
   const APP_DATA_VERSION = 4;
+  const CLOUD_DATA_VERSION = 7;
   const BACKUP_CHANGE_THRESHOLD = 50;
   const BACKUP_DAY_THRESHOLD = 30;
   const BACKUP_SNOOZE_DAYS = 7;
@@ -41,8 +42,16 @@
 
   let database = null;
   let saveQueue = Promise.resolve();
+  let dataLoaded = false;
   let deferredInstallPrompt = null;
   let notificationTimer = null;
+  let cloudUploadTimer = null;
+  let cloudSyncReady = false;
+  let pendingCloudPayload = null;
+  let accountSignedIn = false;
+  let accountEmailVerified = false;
+  let cloudSourceWords = new Map();
+  let cloudSourceVersion = CLOUD_DATA_VERSION;
 
   const state = {
     words: [],
@@ -92,6 +101,7 @@
       notificationEnabled: false,
       notificationTimes: [],
       notificationSent: {},
+      accountPromptShown: false,
       answerHistory: []
     };
   }
@@ -114,6 +124,7 @@
       notificationSent: meta?.notificationSent && typeof meta.notificationSent === "object"
         ? { ...meta.notificationSent }
         : {},
+      accountPromptShown: meta?.accountPromptShown === true,
       answerHistory: Array.isArray(meta?.answerHistory)
         ? meta.answerHistory.map((entry) => {
             if (typeof entry === "string") return { date: entry, result: "unknown" };
@@ -251,7 +262,7 @@
     }
   }
 
-  function saveData({ changeAmount = 1 } = {}) {
+  function saveData({ changeAmount = 1, skipCloud = false } = {}) {
     if (changeAmount > 0) {
       state.meta.changesSinceBackup += changeAmount;
     }
@@ -261,6 +272,9 @@
     const snapshot = createRecordSnapshot();
     saveQueue = saveQueue
       .then(() => writeStateRecord(snapshot))
+      .then(() => {
+        if (!skipCloud) scheduleCloudUpload();
+      })
       .catch((error) => {
         console.error("データ保存に失敗:", error);
         showStorageFailure("端末内への保存に失敗した。JSONバックアップを書き出す必要がある。");
@@ -856,6 +870,7 @@
   function openSettings() {
     renderStorageStatus();
     renderNotificationSettings();
+    renderAccountSettings();
     const dialog = $("#settingsDialog");
     if (dialog && !dialog.open) dialog.showModal();
   }
@@ -863,6 +878,21 @@
   function closeSettings() {
     const dialog = $("#settingsDialog");
     if (dialog?.open) dialog.close();
+  }
+
+  function closeAccountPrompt() {
+    const dialog = $("#accountPromptDialog");
+    if (dialog?.open) dialog.close();
+  }
+
+  function openAccountSettings() {
+    closeAccountPrompt();
+    openSettings();
+    requestAnimationFrame(() => {
+      const accountPanel = $("#accountSettings");
+      accountPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => focusWithoutPageScroll($("#accountEmail")), 250);
+    });
   }
 
   function switchTab(tabName, options = {}) {
@@ -1275,7 +1305,7 @@
   }
 
   function showQuizEmpty(message, action = "add") {
-    $("#quizCard").classList.remove("answer-wrong");
+    $("#quizCard").classList.remove("answer-correct", "answer-wrong");
     $("#quizEmpty").hidden = false;
     $("#quizContent").hidden = true;
     $("#quizEmpty .empty").textContent = message;
@@ -1407,7 +1437,7 @@
     $("#feedback").className = "feedback";
     $("#feedback").textContent = "";
     $("#feedback").hidden = true;
-    $("#quizCard").classList.remove("answer-wrong");
+    $("#quizCard").classList.remove("answer-correct", "answer-wrong");
     state.answered = false;
     state.manualJudgePending = false;
     setTimeout(() => focusWithoutPageScroll($("#answerInput")), 0);
@@ -1450,6 +1480,7 @@
     $("#feedback").hidden = false;
     $("#feedback").className = `feedback ${result}`;
     $("#feedback").innerHTML = message;
+    $("#quizCard").classList.toggle("answer-correct", result === "correct");
     $("#quizCard").classList.toggle("answer-wrong", result === "wrong");
     if (!isCoarsePointerDevice()) focusWithoutPageScroll($("#nextBtn"));
   }
@@ -1784,6 +1815,251 @@
     return Math.floor((Date.now() - time) / 86400000);
   }
 
+  function accountApi() {
+    if (window.AndroidAccount && typeof window.AndroidAccount.getStatus === "function") {
+      return window.AndroidAccount;
+    }
+    return window.WebAccount && typeof window.WebAccount.getStatus === "function"
+      ? window.WebAccount
+      : null;
+  }
+
+  function resetCloudSource() {
+    cloudSourceWords = new Map();
+    cloudSourceVersion = CLOUD_DATA_VERSION;
+  }
+
+  function rememberCloudSource(parsed) {
+    cloudSourceVersion = Number.isFinite(parsed?.version)
+      ? Math.max(1, Math.round(parsed.version))
+      : CLOUD_DATA_VERSION;
+    cloudSourceWords = new Map(
+      Array.isArray(parsed?.words)
+        ? parsed.words
+            .filter((word) => word && typeof word === "object" && word.id != null)
+            .map((word) => [String(word.id), { ...word }])
+        : []
+    );
+  }
+
+  function createCloudPayload() {
+    const words = state.words.map((word) => ({
+      ...(cloudSourceWords.get(String(word.id)) || {}),
+      ...word
+    }));
+    return JSON.stringify({
+      version: cloudSourceVersion,
+      words,
+      learning: {
+        answerHistory: state.meta.answerHistory || []
+      }
+    });
+  }
+
+  function cloudCoreMatchesLocal(parsed) {
+    const cloudWords = normalizeWords(parsed?.words);
+    const cloudHistory = normalizeMeta({
+      answerHistory: parsed?.learning?.answerHistory
+    }).answerHistory;
+    return JSON.stringify(cloudWords) === JSON.stringify(state.words)
+      && JSON.stringify(cloudHistory) === JSON.stringify(state.meta.answerHistory || []);
+  }
+
+  function scheduleCloudUpload() {
+    if (!cloudSyncReady || !accountSignedIn || !accountEmailVerified) return;
+    if (cloudUploadTimer) clearTimeout(cloudUploadTimer);
+    cloudUploadTimer = setTimeout(() => pushCloudNow(), 900);
+  }
+
+  function pushCloudNow() {
+    const api = accountApi();
+    if (!api || !cloudSyncReady || !accountSignedIn || !accountEmailVerified) return;
+    $("#accountSyncState").textContent = "同期中…";
+    api.pushData(createCloudPayload());
+  }
+
+  function setAccountSyncMessage(message, type = "") {
+    const target = $("#accountSyncState");
+    if (!target) return;
+    target.textContent = message || "";
+    target.style.color = type === "error" ? "var(--red)" : (type === "success" ? "var(--green)" : "");
+  }
+
+  function renderAccountSettings(statusOverride = null) {
+    const api = accountApi();
+    let status = statusOverride;
+    if (!status && api) {
+      try {
+        status = JSON.parse(api.getStatus());
+      } catch {
+        status = null;
+      }
+    }
+
+    const unavailable = $("#accountUnavailable");
+    const signedOut = $("#accountSignedOut");
+    const signedIn = $("#accountSignedIn");
+    if (!unavailable || !signedOut || !signedIn) return;
+
+    if (!api || !status?.configured) {
+      unavailable.hidden = false;
+      signedOut.hidden = true;
+      signedIn.hidden = true;
+      $("#accountUnavailableText").textContent = api
+        ? "クラウドへの接続状態を確認中です。"
+        : "この環境ではアカウント同期を利用できません。";
+      accountSignedIn = false;
+      accountEmailVerified = false;
+      cloudSyncReady = false;
+      return;
+    }
+
+    unavailable.hidden = true;
+    accountSignedIn = status.signedIn === true;
+    accountEmailVerified = status.emailVerified === true;
+    signedOut.hidden = accountSignedIn;
+    signedIn.hidden = !accountSignedIn;
+    if (!accountSignedIn) {
+      cloudSyncReady = false;
+      pendingCloudPayload = null;
+      resetCloudSource();
+      $("#cloudConflict").hidden = true;
+      return;
+    }
+
+    $("#accountEmailDisplay").textContent = status.email || "";
+    $("#accountVerificationState").textContent = accountEmailVerified ? "メール確認済み" : "メール確認待ち";
+    $("#accountVerificationActions").hidden = accountEmailVerified;
+    $("#accountSyncActions").hidden = false;
+    $("#accountSyncNowBtn").disabled = !accountEmailVerified;
+    if (accountEmailVerified) api.startListening();
+  }
+
+  function maybeShowAccountPrompt() {
+    if (!dataLoaded) return;
+    const api = accountApi();
+    if (!api || accountSignedIn) return;
+
+    let status = null;
+    try {
+      status = JSON.parse(api.getStatus());
+    } catch {
+      return;
+    }
+    if (!status?.configured || status.signedIn === true) return;
+
+    const firstPrompt = state.meta.accountPromptShown !== true;
+    if (!firstPrompt) return;
+
+    state.meta.accountPromptShown = true;
+    saveData({ changeAmount: 0 });
+
+    const dialog = $("#accountPromptDialog");
+    if (dialog && !dialog.open) dialog.showModal();
+  }
+
+  async function applyCloudPayload(payload) {
+    const parsed = JSON.parse(payload);
+    if (!Array.isArray(parsed.words)) throw new Error("words配列がない");
+    const importedWords = normalizeWords(parsed.words);
+    const importedHistory = normalizeMeta({
+      answerHistory: parsed.learning?.answerHistory
+    }).answerHistory;
+    const localStoragePersisted = state.meta.storagePersisted;
+    rememberCloudSource(parsed);
+    state.words = importedWords;
+    state.meta = {
+      ...state.meta,
+      answerHistory: importedHistory,
+      storagePersisted: localStoragePersisted
+    };
+    resetQuizSession();
+    await saveData({ changeAmount: 0, skipCloud: true });
+    refreshAll();
+  }
+
+  async function handleCloudData(detail) {
+    if (!accountSignedIn || !accountEmailVerified) return;
+    if (!detail.exists) {
+      resetCloudSource();
+      cloudSyncReady = true;
+      pendingCloudPayload = null;
+      $("#cloudConflict").hidden = true;
+      pushCloudNow();
+      return;
+    }
+
+    const payload = String(detail.payload || "");
+    if (!payload) {
+      setAccountSyncMessage("クラウドデータが空です。", "error");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(payload);
+      if (!Array.isArray(parsed.words)) throw new Error("words配列がない");
+      rememberCloudSource(parsed);
+      if (cloudCoreMatchesLocal(parsed)) {
+        cloudSyncReady = true;
+        pendingCloudPayload = null;
+        $("#cloudConflict").hidden = true;
+        setAccountSyncMessage("同期済み", "success");
+        return;
+      }
+
+      const localHasLearning = state.words.length > 0 || (state.meta.answerHistory || []).length > 0;
+      if (!localHasLearning) {
+        await applyCloudPayload(payload);
+        cloudSyncReady = true;
+        setAccountSyncMessage("クラウドデータを読み込みました。", "success");
+        return;
+      }
+
+      cloudSyncReady = false;
+      pendingCloudPayload = payload;
+      $("#cloudConflict").hidden = false;
+      setAccountSyncMessage("同期方法を選んでください。");
+    } catch (error) {
+      console.error(error);
+      setAccountSyncMessage("クラウドデータを読み込めませんでした。", "error");
+    }
+  }
+
+  async function handleAccountEvent(event) {
+    if (!dataLoaded) return;
+    const detail = event.detail || {};
+    if (detail.type === "auth") {
+      cloudSyncReady = false;
+      pendingCloudPayload = null;
+      resetCloudSource();
+      $("#cloudConflict").hidden = true;
+      renderAccountSettings({
+        configured: detail.configured !== false,
+        signedIn: detail.signedIn === true,
+        email: detail.email || "",
+        emailVerified: detail.emailVerified === true
+      });
+      if (detail.message) setAccountSyncMessage(detail.message, detail.emailVerified ? "success" : "");
+      if (detail.configured !== false && detail.signedIn !== true) maybeShowAccountPrompt();
+      return;
+    }
+    if (detail.type === "cloudData") {
+      await handleCloudData(detail);
+      return;
+    }
+    if (detail.type === "sync") {
+      setAccountSyncMessage(detail.message || "同期済み", "success");
+      return;
+    }
+    if (detail.type === "error") {
+      setAccountSyncMessage(detail.message || "処理に失敗しました。", "error");
+      return;
+    }
+    if (detail.type === "message") {
+      setAccountSyncMessage(detail.message || "", "success");
+    }
+  }
+
   function notificationPermissionLabel() {
     if (!("Notification" in window)) return "このブラウザは通知に対応していない";
     if (Notification.permission === "denied") return "通知が拒否されている。ブラウザ設定から許可が必要";
@@ -2008,6 +2284,7 @@
   }
 
   function bindEvents() {
+    window.addEventListener("minna-account", handleAccountEvent);
     document.addEventListener("click", (event) => {
       const speakButton = event.target.closest("[data-speak]");
       if (speakButton) {
@@ -2032,6 +2309,46 @@
     $("#settingsCloseBtn")?.addEventListener("click", closeSettings);
     $("#settingsDialog")?.addEventListener("click", (event) => {
       if (event.target === $("#settingsDialog")) closeSettings();
+    });
+    $("#accountPromptOpenBtn")?.addEventListener("click", openAccountSettings);
+    $("#accountPromptLaterBtn")?.addEventListener("click", closeAccountPrompt);
+    $("#accountSignInBtn")?.addEventListener("click", () => {
+      accountApi()?.signIn($("#accountEmail").value, $("#accountPassword").value);
+    });
+    $("#accountSignUpBtn")?.addEventListener("click", () => {
+      accountApi()?.signUp($("#accountEmail").value, $("#accountPassword").value);
+    });
+    $("#accountResetPasswordBtn")?.addEventListener("click", () => {
+      accountApi()?.sendPasswordReset($("#accountEmail").value);
+    });
+    $("#accountRefreshVerificationBtn")?.addEventListener("click", () => accountApi()?.refreshVerification());
+    $("#accountResendVerificationBtn")?.addEventListener("click", () => accountApi()?.resendVerification());
+    $("#accountSignOutBtn")?.addEventListener("click", () => accountApi()?.signOut());
+    $("#accountSyncNowBtn")?.addEventListener("click", pushCloudNow);
+    $("#useDeviceDataBtn")?.addEventListener("click", () => {
+      resetCloudSource();
+      cloudSyncReady = true;
+      pendingCloudPayload = null;
+      $("#cloudConflict").hidden = true;
+      pushCloudNow();
+    });
+    $("#useCloudDataBtn")?.addEventListener("click", async () => {
+      if (!pendingCloudPayload) return;
+      try {
+        const payload = pendingCloudPayload;
+        pendingCloudPayload = null;
+        await applyCloudPayload(payload);
+        cloudSyncReady = true;
+        $("#cloudConflict").hidden = true;
+        setAccountSyncMessage("クラウドデータを読み込みました。", "success");
+      } catch (error) {
+        console.error(error);
+        setAccountSyncMessage("クラウドデータを読み込めませんでした。", "error");
+      }
+    });
+    $("#accountDeleteBtn")?.addEventListener("click", () => {
+      if (!confirm("アカウントとクラウド上の単語・学習状況を完全に削除しますか？端末内データは残ります。")) return;
+      accountApi()?.deleteAccount();
     });
 
     $("#addForm").addEventListener("submit", (event) => {
@@ -2301,12 +2618,15 @@
     bindEvents();
     registerServiceWorker();
     await loadData();
+    dataLoaded = true;
     refreshAll();
+    renderAccountSettings();
     await requestPersistentStorage(false);
     refreshAll();
     startNotificationScheduler();
     await checkScheduledNotifications({ catchUp: true });
     switchTab(location.hash === "#today" ? "today" : "today");
+    maybeShowAccountPrompt();
 
     if (state.meta.migratedFromLocalStorage) {
       showNotice($("#dataNotice"), "旧版のlocalStorageデータをIndexedDBへ自動移行した。", "success");
