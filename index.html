@@ -8,9 +8,9 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="manifest" href="./manifest.webmanifest?v=8.4" />
-  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=8.4" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=8.4" />
+  <link rel="manifest" href="./manifest.webmanifest?v=8.5" />
+  <link rel="icon" type="image/png" sizes="64x64" href="./icons/icon-64.png?v=8.5" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=8.5" />
   <title>みんなの単語帳</title>
   <style>
     :root {
@@ -1139,6 +1139,193 @@
       .single-character-fields { gap: 6px; }
       .single-character-field { width: 38px; min-width: 38px; height: 41px; font-size: 1.12rem; }
     }
+
+    .developer-access-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 6000;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: #000;
+      color: #7df9c2;
+      font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      opacity: 0;
+      transition: opacity .24s ease;
+    }
+    .developer-access-overlay.active { opacity: 1; }
+    .developer-access-terminal {
+      width: min(560px, 100%);
+      padding: clamp(24px, 7vw, 42px);
+      border: 1px solid rgba(125,249,194,.38);
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(7,18,14,.98), rgba(1,6,4,.99));
+      box-shadow: 0 0 55px rgba(55,255,177,.12), inset 0 1px rgba(255,255,255,.03);
+      text-align: left;
+    }
+    .developer-access-line {
+      display: block;
+      margin: 8px 0;
+      font-size: clamp(.9rem, 3.6vw, 1.15rem);
+      font-weight: 700;
+      letter-spacing: .08em;
+      animation: developer-line-in .42s ease both;
+    }
+    .developer-access-line:nth-child(2) { animation-delay: .75s; }
+    .developer-access-cursor {
+      display: inline-block;
+      width: .65em;
+      height: 1em;
+      margin-left: 8px;
+      vertical-align: -.14em;
+      background: currentColor;
+      animation: developer-cursor 1s step-end infinite;
+    }
+    @keyframes developer-line-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+    @keyframes developer-cursor { 50% { opacity: 0; } }
+
+    body.developer-mode-open { overflow: hidden; }
+    .developer-console {
+      position: fixed;
+      inset: 0;
+      z-index: 5900;
+      overflow: auto;
+      overscroll-behavior: contain;
+      background:
+        radial-gradient(circle at 50% -10%, rgba(52,255,174,.09), transparent 34rem),
+        #030806;
+      color: #e4f4ed;
+      font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    .developer-shell {
+      width: min(1080px, calc(100% - 24px));
+      margin: 0 auto;
+      padding: max(18px, env(safe-area-inset-top)) 0 max(42px, env(safe-area-inset-bottom));
+    }
+    .developer-topbar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin: 0 -4px 14px;
+      padding: 10px 4px 14px;
+      background: linear-gradient(180deg, rgba(3,8,6,.98) 75%, transparent);
+    }
+    .developer-kicker { color: #7df9c2; font-size: .72rem; letter-spacing: .14em; }
+    .developer-title { margin: 2px 0 0; color: #f2fff9; font-size: clamp(1.55rem, 6vw, 2.5rem); letter-spacing: -.04em; }
+    .developer-button {
+      min-height: 42px;
+      padding: 9px 13px;
+      border: 1px solid rgba(125,249,194,.32);
+      border-radius: 10px;
+      background: rgba(18,45,34,.72);
+      color: #a6ffd9;
+      font-weight: 700;
+    }
+    .developer-button:hover, .developer-button:focus-visible { border-color: #7df9c2; outline: 2px solid rgba(125,249,194,.16); }
+    .developer-button.danger { border-color: rgba(255,104,96,.35); background: rgba(75,22,20,.7); color: #ff9b95; }
+    .developer-nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding-bottom: 4px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .developer-nav a {
+      flex: 0 0 auto;
+      padding: 8px 11px;
+      border: 1px solid rgba(125,249,194,.18);
+      border-radius: 999px;
+      color: #9ec6b5;
+      text-decoration: none;
+      font-size: .76rem;
+    }
+    .developer-section {
+      margin-top: 14px;
+      padding: clamp(16px, 4vw, 24px);
+      border: 1px solid rgba(125,249,194,.18);
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(12,27,21,.94), rgba(5,13,10,.96));
+      box-shadow: inset 0 1px rgba(255,255,255,.025), 0 18px 45px rgba(0,0,0,.28);
+    }
+    .developer-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .developer-section h3 { margin: 0; color: #dffff1; font-size: 1rem; letter-spacing: .04em; }
+    .developer-section-note, .developer-count, .developer-empty { color: #7e9b8f; font-size: .77rem; }
+    .developer-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .developer-metric {
+      min-width: 0;
+      padding: 13px;
+      border: 1px solid rgba(125,249,194,.11);
+      border-radius: 12px;
+      background: rgba(0,0,0,.23);
+    }
+    .developer-metric span { display: block; color: #779286; font-size: .68rem; line-height: 1.45; }
+    .developer-metric strong { display: block; margin-top: 5px; color: #b9ffe0; font-size: clamp(1rem, 4vw, 1.45rem); overflow-wrap: anywhere; }
+    .developer-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px; }
+    .developer-controls input, .developer-controls select, .developer-period-select {
+      width: 100%;
+      min-height: 42px;
+      padding: 8px 10px;
+      border: 1px solid rgba(125,249,194,.19);
+      border-radius: 10px;
+      background: #07110d;
+      color: #dffff1;
+      outline: none;
+    }
+    .developer-controls input:focus, .developer-controls select:focus, .developer-period-select:focus { border-color: #7df9c2; box-shadow: 0 0 0 3px rgba(125,249,194,.1); }
+    .developer-period-select { width: auto; min-width: 118px; }
+    .developer-chart-wrap { width: 100%; height: 250px; }
+    .developer-chart-wrap canvas { width: 100%; height: 100%; display: block; }
+    .developer-chart-total { color: #7df9c2; font-size: 1.25rem; font-weight: 800; }
+    .developer-log-list { display: grid; gap: 9px; }
+    .developer-log-card {
+      border: 1px solid rgba(125,249,194,.13);
+      border-radius: 12px;
+      background: rgba(0,0,0,.24);
+      overflow: hidden;
+    }
+    .developer-log-card summary {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 48px;
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+    .developer-log-card summary::-webkit-details-marker { display: none; }
+    .developer-log-card summary strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
+    .developer-log-card time, .developer-event-row time { color: #688278; font-size: .66rem; }
+    .developer-status { padding: 3px 7px; border-radius: 999px; font-size: .62rem; font-weight: 800; }
+    .developer-status.correct { color: #9fffcf; background: rgba(52,199,89,.16); }
+    .developer-status.wrong { color: #ffaaa4; background: rgba(255,69,58,.17); }
+    .developer-log-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 12px 12px; }
+    .developer-log-detail div { min-width: 0; padding: 9px; border-radius: 9px; background: rgba(125,249,194,.035); }
+    .developer-log-detail span { display: block; color: #708c80; font-size: .64rem; }
+    .developer-log-detail strong { display: block; margin-top: 3px; color: #d7eee4; font-size: .76rem; overflow-wrap: anywhere; }
+    .developer-event-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding: 11px 12px; border: 1px solid rgba(125,249,194,.12); border-radius: 11px; background: rgba(0,0,0,.22); }
+    .developer-event-row > div { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .developer-event-row strong, .developer-event-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .76rem; }
+    .developer-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .developer-data-notice { min-height: 22px; margin-top: 12px; color: #7df9c2; font-size: .72rem; letter-spacing: .06em; }
+    .developer-load-more { width: 100%; margin-top: 10px; }
+    @media (max-width: 760px) {
+      .developer-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .developer-controls { grid-template-columns: 1fr; }
+      .developer-event-row { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .developer-shell { width: min(100% - 16px, 1080px); }
+      .developer-topbar { align-items: flex-start; }
+      .developer-button { min-height: 38px; padding: 7px 10px; font-size: .74rem; }
+      .developer-log-detail { grid-template-columns: 1fr; }
+      .developer-log-card summary { grid-template-columns: auto minmax(0, 1fr); }
+      .developer-log-card time { grid-column: 2; }
+    }
   </style>
 
 </head>
@@ -1386,6 +1573,87 @@
     </div>
   </nav>
 
+  <div class="developer-access-overlay" id="developerAccessOverlay" hidden aria-live="assertive" aria-label="開発者モードを起動中">
+    <div class="developer-access-terminal" role="status">
+      <span class="developer-access-line">ACCESS CODE ACCEPTED</span>
+      <span class="developer-access-line">DEVELOPER MODE ENABLED<span class="developer-access-cursor" aria-hidden="true"></span></span>
+    </div>
+  </div>
+
+  <div class="developer-console" id="developerConsole" hidden aria-label="Developer Console">
+    <div class="developer-shell">
+      <header class="developer-topbar">
+        <div>
+          <div class="developer-kicker">LOCAL / SESSION ONLY</div>
+          <h2 class="developer-title">Developer Console</h2>
+        </div>
+        <button class="developer-button" id="developerExitBtn" type="button">開発者モードを終了</button>
+      </header>
+
+      <nav class="developer-nav" aria-label="開発者画面内の移動">
+        <a href="#developerOverview">Overview</a>
+        <a href="#developerGrowth">Word Growth</a>
+        <a href="#developerAttempts">Attempt History</a>
+        <a href="#developerEvents">Word Event History</a>
+        <a href="#developerData">Data Management</a>
+      </nav>
+
+      <section class="developer-section" id="developerOverview">
+        <div class="developer-section-head"><h3>Overview</h3><span class="developer-section-note">端末内の記録だけを集計</span></div>
+        <div class="developer-overview-grid">
+          <div class="developer-metric"><span>現在の登録単語数</span><strong id="developerCurrentWords">0</strong></div>
+          <div class="developer-metric"><span>累計追加単語数</span><strong id="developerLifetimeAdded">0</strong></div>
+          <div class="developer-metric"><span>累計削除単語数</span><strong id="developerLifetimeDeleted">0</strong></div>
+          <div class="developer-metric"><span>今日追加</span><strong id="developerTodayAdded">0</strong></div>
+          <div class="developer-metric"><span>今週追加</span><strong id="developerWeekAdded">0</strong></div>
+          <div class="developer-metric"><span>今月追加</span><strong id="developerMonthAdded">0</strong></div>
+          <div class="developer-metric"><span>総問題試行回数</span><strong id="developerTotalAttempts">0</strong></div>
+          <div class="developer-metric"><span>正解回数</span><strong id="developerCorrectCount">0</strong></div>
+          <div class="developer-metric"><span>不正解回数</span><strong id="developerIncorrectCount">0</strong></div>
+          <div class="developer-metric"><span>正答率</span><strong id="developerAccuracy">—</strong></div>
+          <div class="developer-metric"><span>学習した日数</span><strong id="developerLearningDays">0</strong></div>
+          <div class="developer-metric"><span>最終学習日時</span><strong id="developerLastStudyAt">未実施</strong></div>
+        </div>
+      </section>
+
+      <section class="developer-section" id="developerGrowth">
+        <div class="developer-section-head">
+          <div><h3>Word Growth</h3><span class="developer-section-note">日別の追加単語数</span></div>
+          <div><select class="developer-period-select" id="developerGrowthPeriod" aria-label="表示期間"><option value="7">過去7日</option><option value="30">過去30日</option><option value="all">全期間</option></select><div class="developer-chart-total" id="developerGrowthTotal">0語</div></div>
+        </div>
+        <div class="developer-chart-wrap"><canvas id="developerGrowthChart" aria-label="単語追加数の推移"></canvas></div>
+      </section>
+
+      <section class="developer-section" id="developerAttempts">
+        <div class="developer-section-head"><h3>Attempt History</h3><span class="developer-count" id="developerAttemptCount">0件</span></div>
+        <div class="developer-controls">
+          <select id="developerAttemptResultFilter" aria-label="正誤で絞り込む"><option value="all">全件</option><option value="correct">正解のみ</option><option value="wrong">不正解のみ</option></select>
+          <select id="developerAttemptModeFilter" aria-label="モードで絞り込む"><option value="all">全モード</option><option value="normal">通常モード</option><option value="weakness">弱点モード</option></select>
+          <input id="developerAttemptSearch" type="search" placeholder="単語名で検索" aria-label="単語名で検索" />
+        </div>
+        <div class="developer-log-list" id="developerAttemptList"></div>
+        <button class="developer-button developer-load-more" id="developerAttemptLoadMore" type="button" hidden>さらに50件表示</button>
+      </section>
+
+      <section class="developer-section" id="developerEvents">
+        <div class="developer-section-head"><h3>Word Event History</h3><span class="developer-count" id="developerEventCount">0件</span></div>
+        <div class="developer-log-list" id="developerEventList"></div>
+        <button class="developer-button developer-load-more" id="developerEventLoadMore" type="button" hidden>さらに50件表示</button>
+      </section>
+
+      <section class="developer-section" id="developerData">
+        <div class="developer-section-head"><div><h3>Data Management</h3><span class="developer-section-note">ここで消せるのは開発者用ログだけです</span></div></div>
+        <div class="developer-actions">
+          <button class="developer-button" id="developerExportLogsBtn" type="button">ログをJSONでエクスポート</button>
+          <button class="developer-button danger" id="developerClearAttemptsBtn" type="button">問題試行履歴を削除</button>
+          <button class="developer-button danger" id="developerClearEventsBtn" type="button">単語操作履歴を削除</button>
+          <button class="developer-button danger" id="developerClearAllLogsBtn" type="button">すべての統計ログを削除</button>
+        </div>
+        <div class="developer-data-notice" id="developerDataNotice" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
   <dialog id="accountPromptDialog" class="account-prompt-dialog" aria-labelledby="accountPromptTitle">
     <div class="account-prompt-sheet">
       <div class="account-prompt-icon" aria-hidden="true">
@@ -1469,10 +1737,10 @@
 
   <dialog id="editDialog"><form method="dialog" class="dialog-inner" id="editForm"><h2>単語を編集</h2><input type="hidden" id="editId" /><div class="grid"><div><label for="editEnglish">英語</label><input id="editEnglish" autocapitalize="none" spellcheck="true" required /></div><div><label for="editJapanese">日本語訳</label><input id="editJapanese" required /></div></div><div class="button-row"><button class="btn primary" value="save" type="submit">保存</button><button class="btn ghost" value="cancel" type="button" id="cancelEditBtn">キャンセル</button></div></form></dialog>
 
-  <script src="./spell-dictionary.js?v=8.4" defer></script>
-  <script src="./foresta-questions.js?v=8.4" defer></script>
-  <script src="./firebase-account.js?v=8.4" defer></script>
-  <script src="./app.js?v=8.4" defer></script>
+  <script src="./spell-dictionary.js?v=8.5" defer></script>
+  <script src="./foresta-questions.js?v=8.5" defer></script>
+  <script src="./firebase-account.js?v=8.5" defer></script>
+  <script src="./app.js?v=8.5" defer></script>
   <script>
     window.addEventListener("load", () => {
       const input = document.getElementById("quizCount");
