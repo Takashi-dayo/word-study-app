@@ -2,9 +2,19 @@
   "use strict";
 
   const DB_NAME = "word-study-app-db";
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const STORE_NAME = "appState";
   const RECORD_KEY = "main";
+  const ATTEMPT_LOG_STORE = "attemptLogs";
+  const EVENT_LOG_STORE = "eventLogs";
+  const DAILY_STATS_STORE = "dailyStats";
+  const DEVELOPER_STATS_META_KEY = "__meta__";
+  const DEVELOPER_MODE_SESSION_KEY = "developerModeEnabled";
+  const DEVELOPER_ACCESS_HASH = "aae528402b888fb8605ddbc0db046b882e547e380db06820b3b52e0b8e7bdea3";
+  const DEVELOPER_ACCESS_DURATION_MS = 3000;
+  const ATTEMPT_LOG_LIMIT = 5000;
+  const EVENT_LOG_LIMIT = 2000;
+  const DEVELOPER_LOG_PAGE_SIZE = 50;
   const LEGACY_STORAGE_KEYS = ["custom-word-study-app-v1", "custom-word-study-app-v2"];
   const APP_DATA_VERSION = 4;
   const CLOUD_DATA_VERSION = 7;
@@ -52,6 +62,17 @@
   let accountEmailVerified = false;
   let cloudSourceWords = new Map();
   let cloudSourceVersion = CLOUD_DATA_VERSION;
+  let developerLogQueue = Promise.resolve();
+  let developerAccessChecking = false;
+
+  const developerViewState = {
+    attemptLogs: [],
+    eventLogs: [],
+    dailyStats: [],
+    metrics: null,
+    attemptVisibleCount: DEVELOPER_LOG_PAGE_SIZE,
+    eventVisibleCount: DEVELOPER_LOG_PAGE_SIZE
+  };
 
   const state = {
     words: [],
@@ -69,7 +90,9 @@
     forestaSessionWords: [],
     wordListMode: "standard",
     pendingRegistration: null,
-    pendingBulkSpellWarnings: []
+    pendingBulkSpellWarnings: [],
+    questionShownAt: 0,
+    pendingAnswerContext: null
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -175,6 +198,17 @@
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: "key" });
         }
+        if (!db.objectStoreNames.contains(ATTEMPT_LOG_STORE)) {
+          const store = db.createObjectStore(ATTEMPT_LOG_STORE, { keyPath: "id" });
+          store.createIndex("attemptedAt", "attemptedAt", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(EVENT_LOG_STORE)) {
+          const store = db.createObjectStore(EVENT_LOG_STORE, { keyPath: "id" });
+          store.createIndex("occurredAt", "occurredAt", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(DAILY_STATS_STORE)) {
+          db.createObjectStore(DAILY_STATS_STORE, { keyPath: "date" });
+        }
       };
       request.onsuccess = () => {
         database = request.result;
@@ -205,6 +239,205 @@
       tx.onerror = () => reject(tx.error || new Error("保存に失敗した"));
       tx.onabort = () => reject(tx.error || new Error("保存処理が中断された"));
     });
+  }
+
+  function transactionComplete(tx) {
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("ログ保存に失敗した"));
+      tx.onabort = () => reject(tx.error || new Error("ログ保存が中断された"));
+    });
+  }
+
+  async function readDeveloperStore(storeName) {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const request = tx.objectStore(storeName).getAll();
+      request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+      request.onerror = () => reject(request.error || new Error("ログを読み込めない"));
+    });
+  }
+
+  function defaultDeveloperMetrics(wordCount = state.words.length) {
+    const baselineCorrect = state.words.reduce((sum, word) => sum + Math.max(0, Number(word.correct) || 0), 0);
+    const baselineIncorrect = state.words.reduce((sum, word) => sum + Math.max(0, Number(word.mistakes) || 0), 0);
+    const baselineLearningDates = [...new Set(
+      (state.meta.answerHistory || [])
+        .map((entry) => String(entry?.date || ""))
+        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    )].sort();
+    const lastLearningDate = baselineLearningDates.at(-1) || null;
+    return {
+      date: DEVELOPER_STATS_META_KEY,
+      trackingStartedAt: new Date().toISOString(),
+      baselineWordCount: Math.max(0, wordCount),
+      lifetimeWordsAdded: Math.max(0, wordCount),
+      lifetimeWordsDeleted: 0,
+      baselineAttempts: baselineCorrect + baselineIncorrect,
+      baselineCorrect,
+      baselineIncorrect,
+      baselineLearningDates,
+      lastStudyAt: lastLearningDate ? `${lastLearningDate}T00:00:00` : null
+    };
+  }
+
+  function defaultDailyStats(date) {
+    return {
+      date,
+      wordsAdded: 0,
+      wordsDeleted: 0,
+      attempts: 0,
+      correct: 0,
+      incorrect: 0,
+      studyTimeMs: 0,
+      totalWordCount: state.words.length
+    };
+  }
+
+  function trimLogStore(store, limit, timestampField) {
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const records = Array.isArray(request.result) ? request.result : [];
+      const excess = records.length - limit;
+      if (excess <= 0) return;
+      records
+        .sort((left, right) => String(left?.[timestampField] || "").localeCompare(String(right?.[timestampField] || "")))
+        .slice(0, excess)
+        .forEach((record) => store.delete(record.id));
+    };
+  }
+
+  function queueDeveloperLog(task) {
+    developerLogQueue = developerLogQueue
+      .then(task)
+      .catch((error) => console.warn("開発者ログの保存をスキップ:", error));
+    return developerLogQueue;
+  }
+
+  async function ensureDeveloperTrackingBaseline(reset = false) {
+    const db = await openDatabase();
+    const tx = db.transaction(DAILY_STATS_STORE, "readwrite");
+    const store = tx.objectStore(DAILY_STATS_STORE);
+    const request = store.get(DEVELOPER_STATS_META_KEY);
+    request.onsuccess = () => {
+      if (reset || !request.result) {
+        store.put(defaultDeveloperMetrics());
+        return;
+      }
+      if (!Number.isFinite(request.result.baselineAttempts)) {
+        const defaults = defaultDeveloperMetrics(request.result.baselineWordCount ?? state.words.length);
+        store.put({
+          ...defaults,
+          ...request.result,
+          baselineAttempts: defaults.baselineAttempts,
+          baselineCorrect: defaults.baselineCorrect,
+          baselineIncorrect: defaults.baselineIncorrect,
+          baselineLearningDates: defaults.baselineLearningDates,
+          lastStudyAt: request.result.lastStudyAt || defaults.lastStudyAt
+        });
+      }
+    };
+    await transactionComplete(tx);
+  }
+
+  async function writeAttemptLog(log) {
+    const db = await openDatabase();
+    const tx = db.transaction([ATTEMPT_LOG_STORE, DAILY_STATS_STORE], "readwrite");
+    const attempts = tx.objectStore(ATTEMPT_LOG_STORE);
+    const dailyStats = tx.objectStore(DAILY_STATS_STORE);
+    attempts.put(log);
+    trimLogStore(attempts, ATTEMPT_LOG_LIMIT, "attemptedAt");
+
+    const date = localDateString(new Date(log.attemptedAt));
+    const dailyRequest = dailyStats.get(date);
+    dailyRequest.onsuccess = () => {
+      const daily = { ...defaultDailyStats(date), ...(dailyRequest.result || {}) };
+      daily.attempts += 1;
+      daily.correct += log.isCorrect ? 1 : 0;
+      daily.incorrect += log.isCorrect ? 0 : 1;
+      daily.studyTimeMs += Math.max(0, Number(log.responseTimeMs) || 0);
+      daily.totalWordCount = state.words.length;
+      dailyStats.put(daily);
+    };
+
+    const metricsRequest = dailyStats.get(DEVELOPER_STATS_META_KEY);
+    metricsRequest.onsuccess = () => {
+      const metrics = { ...defaultDeveloperMetrics(), ...(metricsRequest.result || {}) };
+      metrics.lastStudyAt = log.attemptedAt;
+      dailyStats.put(metrics);
+    };
+    await transactionComplete(tx);
+  }
+
+  async function writeWordEventLog(eventLog, { addedCount = 0, deletedCount = 0 } = {}) {
+    const db = await openDatabase();
+    const tx = db.transaction([EVENT_LOG_STORE, DAILY_STATS_STORE], "readwrite");
+    const events = tx.objectStore(EVENT_LOG_STORE);
+    const dailyStats = tx.objectStore(DAILY_STATS_STORE);
+    events.put(eventLog);
+    trimLogStore(events, EVENT_LOG_LIMIT, "occurredAt");
+
+    const date = localDateString(new Date(eventLog.occurredAt));
+    const dailyRequest = dailyStats.get(date);
+    dailyRequest.onsuccess = () => {
+      const daily = { ...defaultDailyStats(date), ...(dailyRequest.result || {}) };
+      daily.wordsAdded += Math.max(0, addedCount);
+      daily.wordsDeleted += Math.max(0, deletedCount);
+      daily.totalWordCount = state.words.length;
+      dailyStats.put(daily);
+    };
+
+    const metricsRequest = dailyStats.get(DEVELOPER_STATS_META_KEY);
+    metricsRequest.onsuccess = () => {
+      const previousWordCount = Math.max(0, state.words.length - addedCount + deletedCount);
+      const metrics = {
+        ...defaultDeveloperMetrics(previousWordCount),
+        ...(metricsRequest.result || {})
+      };
+      metrics.lifetimeWordsAdded += Math.max(0, addedCount);
+      metrics.lifetimeWordsDeleted += Math.max(0, deletedCount);
+      dailyStats.put(metrics);
+    };
+    await transactionComplete(tx);
+  }
+
+  function recordWordEvent(type, { wordId, word, count, addedCount = 0, deletedCount = 0 } = {}) {
+    const eventLog = {
+      id: generateId(),
+      occurredAt: new Date().toISOString(),
+      type,
+      ...(wordId ? { wordId } : {}),
+      ...(word ? { word } : {}),
+      ...(Number.isFinite(count) ? { count: Math.max(0, count) } : {})
+    };
+    queueDeveloperLog(() => writeWordEventLog(eventLog, { addedCount, deletedCount }));
+  }
+
+  function recordAttemptLog(word, expected, userAnswer, isCorrect, responseTimeMs) {
+    const question = state.currentDirection === "en-ja" ? word.english : word.japanese;
+    const log = {
+      id: generateId(),
+      attemptedAt: new Date().toISOString(),
+      wordId: word.id,
+      word: word.english,
+      question,
+      correctAnswer: expected,
+      userAnswer: String(userAnswer || ""),
+      isCorrect,
+      responseTimeMs: Math.max(0, Number(responseTimeMs) || 0),
+      attemptCountForWord: Math.max(0, Number(word.correct) || 0) + Math.max(0, Number(word.mistakes) || 0),
+      mode: currentQuizRange() === "mistakes" ? "weakness" : "normal",
+      questionType: state.currentDirection
+    };
+    queueDeveloperLog(() => writeAttemptLog(log));
+  }
+
+  async function clearDeveloperStore(storeName) {
+    const db = await openDatabase();
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).clear();
+    await transactionComplete(tx);
   }
 
   function createRecordSnapshot() {
@@ -639,7 +872,7 @@
     word.reviewDates = (word.reviewDates || []).filter((date) => date > today);
   }
 
-  function addWord(english, japanese) {
+  function addWord(english, japanese, { logEvent = true } = {}) {
     const en = english.trim();
     const ja = japanese.trim();
     if (!en || !ja) return { ok: false, message: "英語と日本語訳の両方を入力する必要がある。" };
@@ -649,7 +882,7 @@
     );
     if (duplicate) return { ok: false, message: "同じ英語・日本語訳の組み合わせが既に登録されている。" };
 
-    state.words.unshift({
+    const word = {
       id: generateId(),
       english: en,
       japanese: ja,
@@ -658,9 +891,18 @@
       mistakeHistory: [],
       reviewDates: [],
       createdAt: Date.now()
-    });
+    };
+    state.words.unshift(word);
 
     saveData();
+    if (logEvent) {
+      recordWordEvent("word_added", {
+        wordId: word.id,
+        word: word.english,
+        count: 1,
+        addedCount: 1
+      });
+    }
     return { ok: true, message: `「${en}」を追加した。` };
   }
 
@@ -813,8 +1055,15 @@
       if (duplicates.sameEnglish.length) {
         duplicateItems.push({ english, japanese: item.japanese, type: "same", existing: duplicates.sameEnglish.map((word) => word.japanese) });
       }
-      const result = addWord(english, item.japanese);
+      const result = addWord(english, item.japanese, { logEvent: false });
       result.ok ? added++ : skipped++;
+    }
+    if (added) {
+      recordWordEvent("bulk_added", {
+        word: warnings.map((item) => item.english).slice(0, 5).join("、"),
+        count: added,
+        addedCount: added
+      });
     }
     clearBulkSpellWarning();
     if (duplicateItems.length) renderBulkDuplicateReport(duplicateItems);
@@ -1302,6 +1551,8 @@
     state.quizSessionComplete = false;
     state.answered = false;
     state.manualJudgePending = false;
+    state.questionShownAt = 0;
+    state.pendingAnswerContext = null;
   }
 
   function showQuizEmpty(message, action = "add") {
@@ -1373,6 +1624,8 @@
     state.quizSessionComplete = true;
     state.answered = false;
     state.manualJudgePending = false;
+    state.questionShownAt = 0;
+    state.pendingAnswerContext = null;
     showQuizEmpty(`${state.quizSessionIds.length}問が終了した。`, "restart");
   }
 
@@ -1440,7 +1693,10 @@
     $("#quizCard").classList.remove("answer-correct", "answer-wrong");
     state.answered = false;
     state.manualJudgePending = false;
-    setTimeout(() => focusWithoutPageScroll($("#answerInput")), 0);
+    state.pendingAnswerContext = null;
+    state.questionShownAt = Date.now();
+    // iOSはユーザー操作と同じ処理内でfocusしないとソフトウェアキーボードを開かない。
+    focusWithoutPageScroll($("#answerInput"));
   }
 
   function correctAnswerMarkup(expected, label = "模範解答：", englishText = "") {
@@ -1468,6 +1724,8 @@
   function finishAnswer(result, message) {
     state.answered = true;
     state.manualJudgePending = false;
+    state.questionShownAt = 0;
+    state.pendingAnswerContext = null;
     const answerInput = $("#answerInput");
     if (document.activeElement === answerInput) answerInput.blur();
     answerInput.disabled = true;
@@ -1482,11 +1740,14 @@
     $("#feedback").innerHTML = message;
     $("#quizCard").classList.toggle("answer-correct", result === "correct");
     $("#quizCard").classList.toggle("answer-wrong", result === "wrong");
-    if (!isCoarsePointerDevice()) focusWithoutPageScroll($("#nextBtn"));
+    focusWithoutPageScroll($("#nextBtn"));
   }
 
-  function recordCorrectAnswer(word, expected) {
+  function recordCorrectAnswer(word, expected, attemptContext = null) {
     word.correct += 1;
+    if (attemptContext) {
+      recordAttemptLog(word, expected, attemptContext.userAnswer, true, attemptContext.responseTimeMs);
+    }
     if (!isForestaMode()) {
       recordAnswerHistory("correct");
       if (currentQuizRange() === "today") completeDueReviews(word);
@@ -1498,8 +1759,11 @@
     );
   }
 
-  function recordWrongAnswer(word, expected, note = "") {
+  function recordWrongAnswer(word, expected, note = "", attemptContext = null) {
     word.mistakes += 1;
+    if (attemptContext) {
+      recordAttemptLog(word, expected, attemptContext.userAnswer, false, attemptContext.responseTimeMs);
+    }
     if (!isForestaMode()) {
       recordAnswerHistory("wrong");
       if (currentQuizRange() === "today") completeDueReviews(word);
@@ -1512,8 +1776,9 @@
     );
   }
 
-  function requestManualJudgement(expected) {
+  function requestManualJudgement(expected, attemptContext) {
     state.manualJudgePending = true;
+    state.pendingAnswerContext = attemptContext;
     $("#answerInput").disabled = true;
     $("#checkBtn").hidden = true;
     $("#showAnswerBtn").hidden = true;
@@ -1526,7 +1791,7 @@
     $("#feedback").innerHTML =
       correctAnswerMarkup(expected, "登録された答え") +
       `<span class="muted">意味が合っている場合は「正解として扱う」を押す。</span>`;
-    if (!isCoarsePointerDevice()) focusWithoutPageScroll($("#markCorrectBtn"));
+    focusWithoutPageScroll($("#markCorrectBtn"));
   }
 
   function resolveManualJudgement(isCorrect) {
@@ -1540,20 +1805,91 @@
     $("#markWrongBtn").disabled = true;
 
     const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
+    const attemptContext = state.pendingAnswerContext;
     if (isCorrect) {
-      recordCorrectAnswer(word, expected);
+      recordCorrectAnswer(word, expected, attemptContext);
     } else {
-      recordWrongAnswer(word, expected);
+      recordWrongAnswer(word, expected, "", attemptContext);
     }
   }
 
-  function checkAnswer() {
+  function handleQuizKeyboardNavigation(event) {
+    if (event.defaultPrevented || event.isComposing || event.repeat) return;
+    if (!document.body.classList.contains("quiz-playing")) return;
+    if ($("#developerAccessOverlay")?.hidden === false || $("#developerConsole")?.hidden === false) return;
+
+    if (state.manualJudgePending) {
+      const correctButton = $("#markCorrectBtn");
+      const wrongButton = $("#markWrongBtn");
+      if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        focusWithoutPageScroll(correctButton);
+        return;
+      }
+      if (["ArrowRight", "ArrowDown"].includes(event.key)) {
+        event.preventDefault();
+        focusWithoutPageScroll(wrongButton);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (document.activeElement === wrongButton) resolveManualJudgement(false);
+        else if (document.activeElement === correctButton) resolveManualJudgement(true);
+        else focusWithoutPageScroll(correctButton);
+      }
+      return;
+    }
+
+    if (state.answered && event.key === "Enter") {
+      event.preventDefault();
+      chooseNextQuestion();
+    }
+  }
+
+  function createAttemptContext(userAnswer) {
+    return {
+      userAnswer,
+      responseTimeMs: state.questionShownAt > 0 ? Math.max(0, Date.now() - state.questionShownAt) : 0
+    };
+  }
+
+  async function sha256Hex(value) {
+    if (!window.crypto?.subtle) return "";
+    const bytes = new TextEncoder().encode(value);
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function isDeveloperAccessCode(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return false;
+    try {
+      return await sha256Hex(normalized) === DEVELOPER_ACCESS_HASH;
+    } catch (error) {
+      console.warn("開発者コードを確認できない:", error);
+      return false;
+    }
+  }
+
+  async function checkAnswer() {
     if (state.manualJudgePending) return;
     if (state.answered) return chooseNextQuestion();
+    if (developerAccessChecking) return;
     const word = activeQuizWords().find((item) => item.id === state.currentQuizWordId);
     if (!word) return;
 
     const input = $("#answerInput").value.trim();
+    let developerCodeAccepted = false;
+    developerAccessChecking = true;
+    try {
+      developerCodeAccepted = await isDeveloperAccessCode(input);
+    } finally {
+      developerAccessChecking = false;
+    }
+    if (developerCodeAccepted) {
+      await activateDeveloperMode(true);
+      return;
+    }
     if (!input) {
       $("#feedback").hidden = false;
       $("#feedback").className = "feedback wrong";
@@ -1562,14 +1898,15 @@
     }
 
     const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
+    const attemptContext = createAttemptContext(input);
     const strict = false;
     const correct = isCorrectAnswer(input, expected, strict, state.currentDirection);
     if (correct) {
-      recordCorrectAnswer(word, expected);
+      recordCorrectAnswer(word, expected, attemptContext);
     } else if (state.currentDirection === "en-ja" && !strict) {
-      requestManualJudgement(expected);
+      requestManualJudgement(expected, attemptContext);
     } else {
-      recordWrongAnswer(word, expected);
+      recordWrongAnswer(word, expected, "", attemptContext);
     }
   }
 
@@ -1578,7 +1915,9 @@
     const word = activeQuizWords().find((item) => item.id === state.currentQuizWordId);
     if (!word) return;
     const expected = state.currentDirection === "en-ja" ? word.japanese : word.english;
+    const attemptContext = createAttemptContext($("#answerInput").value.trim() || "（答えを表示）");
     word.mistakes += 1;
+    recordAttemptLog(word, expected, attemptContext.userAnswer, false, attemptContext.responseTimeMs);
     if (!isForestaMode()) {
       recordAnswerHistory("revealed");
       if (currentQuizRange() === "today") completeDueReviews(word);
@@ -1698,6 +2037,361 @@
     drawDailyBarChart($("#answeredQuestionsChart"), series.dates, series.answered, styles.getPropertyValue("--green").trim() || "#34c759");
   }
 
+  function developerModeSessionEnabled() {
+    try {
+      return sessionStorage.getItem(DEVELOPER_MODE_SESSION_KEY) === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  function setDeveloperModeSession(enabled) {
+    try {
+      if (enabled) sessionStorage.setItem(DEVELOPER_MODE_SESSION_KEY, "true");
+      else sessionStorage.removeItem(DEVELOPER_MODE_SESSION_KEY);
+    } catch (error) {
+      console.warn("開発者モードのセッション状態を保存できない:", error);
+    }
+  }
+
+  async function activateDeveloperMode(showAccessSequence = false) {
+    setDeveloperModeSession(true);
+    if (showAccessSequence) {
+      const overlay = $("#developerAccessOverlay");
+      overlay.hidden = false;
+      requestAnimationFrame(() => overlay.classList.add("active"));
+      await new Promise((resolve) => setTimeout(resolve, DEVELOPER_ACCESS_DURATION_MS));
+      overlay.classList.remove("active");
+      overlay.hidden = true;
+    }
+    await openDeveloperConsole();
+  }
+
+  async function openDeveloperConsole() {
+    const settingsDialog = $("#settingsDialog");
+    const accountPromptDialog = $("#accountPromptDialog");
+    if (settingsDialog?.open) settingsDialog.close();
+    if (accountPromptDialog?.open) accountPromptDialog.close();
+    document.body.classList.add("developer-mode-open");
+    $("#developerConsole").hidden = false;
+    await refreshDeveloperConsole();
+  }
+
+  function closeDeveloperConsole() {
+    setDeveloperModeSession(false);
+    document.body.classList.remove("developer-mode-open");
+    $("#developerConsole").hidden = true;
+    const answerInput = $("#answerInput");
+    if (answerInput && !answerInput.disabled && state.currentQuizWordId) {
+      answerInput.value = "";
+      state.questionShownAt = Date.now();
+      setTimeout(() => focusWithoutPageScroll(answerInput), 0);
+    }
+  }
+
+  async function loadDeveloperConsoleData() {
+    await developerLogQueue;
+    const [attemptLogs, eventLogs, dailyRecords] = await Promise.all([
+      readDeveloperStore(ATTEMPT_LOG_STORE),
+      readDeveloperStore(EVENT_LOG_STORE),
+      readDeveloperStore(DAILY_STATS_STORE)
+    ]);
+    developerViewState.attemptLogs = attemptLogs
+      .filter((log) => log && log.id)
+      .sort((left, right) => String(right.attemptedAt || "").localeCompare(String(left.attemptedAt || "")));
+    developerViewState.eventLogs = eventLogs
+      .filter((log) => log && log.id)
+      .sort((left, right) => String(right.occurredAt || "").localeCompare(String(left.occurredAt || "")));
+    developerViewState.metrics = dailyRecords.find((record) => record?.date === DEVELOPER_STATS_META_KEY)
+      || defaultDeveloperMetrics();
+    developerViewState.dailyStats = dailyRecords
+      .filter((record) => /^\d{4}-\d{2}-\d{2}$/.test(String(record?.date || "")))
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+
+  function dateAtLocalMidnight(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+
+  function startOfLocalWeek(date = new Date()) {
+    const start = dateAtLocalMidnight(date);
+    const day = start.getDay();
+    start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+    return localDateString(start);
+  }
+
+  function sumDailyStatsSince(dateKey, field) {
+    return developerViewState.dailyStats
+      .filter((record) => record.date >= dateKey)
+      .reduce((sum, record) => sum + Math.max(0, Number(record?.[field]) || 0), 0);
+  }
+
+  function setDeveloperText(id, value) {
+    const target = $(id);
+    if (target) target.textContent = String(value);
+  }
+
+  function formatPercent(correct, total) {
+    return total ? `${Math.round(correct / total * 100)}%` : "—";
+  }
+
+  function formatDuration(milliseconds) {
+    const value = Math.max(0, Number(milliseconds) || 0);
+    if (value < 1000) return `${Math.round(value)} ms`;
+    if (value < 60000) return `${(value / 1000).toFixed(1)} 秒`;
+    const minutes = Math.floor(value / 60000);
+    const seconds = Math.round((value % 60000) / 1000);
+    return `${minutes}分${seconds}秒`;
+  }
+
+  function renderDeveloperOverview() {
+    const today = localDateString();
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const metrics = developerViewState.metrics || defaultDeveloperMetrics();
+    const attempts = Math.max(0, Number(metrics.baselineAttempts) || 0)
+      + developerViewState.dailyStats.reduce((sum, record) => sum + Math.max(0, Number(record.attempts) || 0), 0);
+    const correct = Math.max(0, Number(metrics.baselineCorrect) || 0)
+      + developerViewState.dailyStats.reduce((sum, record) => sum + Math.max(0, Number(record.correct) || 0), 0);
+    const incorrect = Math.max(0, Number(metrics.baselineIncorrect) || 0)
+      + developerViewState.dailyStats.reduce((sum, record) => sum + Math.max(0, Number(record.incorrect) || 0), 0);
+    const learnedDates = new Set(Array.isArray(metrics.baselineLearningDates) ? metrics.baselineLearningDates : []);
+    developerViewState.dailyStats.filter((record) => Number(record.attempts) > 0).forEach((record) => learnedDates.add(record.date));
+    setDeveloperText("#developerCurrentWords", state.words.length);
+    setDeveloperText("#developerLifetimeAdded", Math.max(state.words.length, Number(metrics.lifetimeWordsAdded) || 0));
+    setDeveloperText("#developerLifetimeDeleted", Math.max(0, Number(metrics.lifetimeWordsDeleted) || 0));
+    setDeveloperText("#developerTodayAdded", sumDailyStatsSince(today, "wordsAdded"));
+    setDeveloperText("#developerWeekAdded", sumDailyStatsSince(startOfLocalWeek(), "wordsAdded"));
+    setDeveloperText("#developerMonthAdded", sumDailyStatsSince(monthStart, "wordsAdded"));
+    setDeveloperText("#developerTotalAttempts", attempts);
+    setDeveloperText("#developerCorrectCount", correct);
+    setDeveloperText("#developerIncorrectCount", incorrect);
+    setDeveloperText("#developerAccuracy", formatPercent(correct, attempts));
+    setDeveloperText("#developerLearningDays", learnedDates.size);
+    setDeveloperText("#developerLastStudyAt", formatDateTime(metrics.lastStudyAt));
+  }
+
+  function developerGrowthSeries(period) {
+    const today = dateAtLocalMidnight();
+    let start = new Date(today);
+    if (period === "7") start.setDate(start.getDate() - 6);
+    else if (period === "30") start.setDate(start.getDate() - 29);
+    else if (developerViewState.dailyStats.length) {
+      const [year, month, day] = developerViewState.dailyStats[0].date.split("-").map(Number);
+      start = new Date(year, month - 1, day);
+    }
+    const valuesByDate = new Map(developerViewState.dailyStats.map((record) => [record.date, Math.max(0, Number(record.wordsAdded) || 0)]));
+    const dates = [];
+    const values = [];
+    for (const cursor = new Date(start); cursor <= today; cursor.setDate(cursor.getDate() + 1)) {
+      const date = localDateString(cursor);
+      dates.push(date);
+      values.push(valuesByDate.get(date) || 0);
+    }
+    return { dates, values };
+  }
+
+  function drawDeveloperGrowthChart(canvas, dates, values) {
+    if (!canvas || !dates.length) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(rect.width * ratio);
+    canvas.height = Math.round(rect.height * ratio);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const width = rect.width;
+    const height = rect.height;
+    const padding = { top: 16, right: 10, bottom: 34, left: 34 };
+    const chartWidth = Math.max(1, width - padding.left - padding.right);
+    const chartHeight = Math.max(1, height - padding.top - padding.bottom);
+    const maximum = Math.max(1, ...values);
+    const step = chartWidth / Math.max(1, values.length);
+    const barWidth = Math.max(1, Math.min(14, step * .68));
+    ctx.clearRect(0, 0, width, height);
+    ctx.font = '11px ui-monospace, "SFMono-Regular", Consolas, monospace';
+    ctx.strokeStyle = "rgba(125,249,194,.16)";
+    ctx.fillStyle = "#8fa89e";
+    ctx.lineWidth = 1;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let line = 0; line <= 4; line++) {
+      const value = Math.round(maximum * (4 - line) / 4);
+      const y = padding.top + chartHeight * line / 4;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(width - padding.right, y);
+      ctx.stroke();
+      ctx.fillText(String(value), padding.left - 7, y);
+    }
+    values.forEach((value, index) => {
+      const barHeight = value ? Math.max(3, value / maximum * chartHeight) : 0;
+      const x = padding.left + step * index + (step - barWidth) / 2;
+      const y = padding.top + chartHeight - barHeight;
+      ctx.fillStyle = "#7df9c2";
+      ctx.fillRect(x, y, barWidth, barHeight);
+    });
+    ctx.fillStyle = "#8fa89e";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const labelCount = Math.min(5, dates.length);
+    const indexes = new Set(Array.from({ length: labelCount }, (_, index) => Math.round(index * (dates.length - 1) / Math.max(1, labelCount - 1))));
+    indexes.forEach((index) => {
+      const [, month, day] = dates[index].split("-");
+      const x = padding.left + step * index + step / 2;
+      ctx.fillText(`${Number(month)}/${Number(day)}`, x, padding.top + chartHeight + 9);
+    });
+  }
+
+  function renderDeveloperGrowth() {
+    const period = $("#developerGrowthPeriod")?.value || "7";
+    const series = developerGrowthSeries(period);
+    const total = series.values.reduce((sum, value) => sum + value, 0);
+    setDeveloperText("#developerGrowthTotal", `${total}語`);
+    drawDeveloperGrowthChart($("#developerGrowthChart"), series.dates, series.values);
+  }
+
+  function attemptMatchesFilters(log) {
+    const resultFilter = $("#developerAttemptResultFilter")?.value || "all";
+    const modeFilter = $("#developerAttemptModeFilter")?.value || "all";
+    const query = normalize($("#developerAttemptSearch")?.value || "");
+    if (resultFilter === "correct" && log.isCorrect !== true) return false;
+    if (resultFilter === "wrong" && log.isCorrect !== false) return false;
+    if (modeFilter !== "all" && log.mode !== modeFilter) return false;
+    if (query) {
+      const searchable = normalize([log.word, log.question, log.correctAnswer, log.userAnswer].filter(Boolean).join(" "));
+      if (!searchable.includes(query)) return false;
+    }
+    return true;
+  }
+
+  function attemptLogMarkup(log) {
+    const status = log.isCorrect ? "CORRECT" : "WRONG";
+    const statusClass = log.isCorrect ? "correct" : "wrong";
+    const mode = log.mode === "weakness" ? "弱点モード" : "通常モード";
+    const questionType = log.questionType === "ja-en" ? "日本語 → 英語" : "英語 → 日本語";
+    return `<details class="developer-log-card"><summary><span class="developer-status ${statusClass}">${status}</span><strong>${escapeHtml(log.word || log.question || "—")}</strong><time>${escapeHtml(formatDateTime(log.attemptedAt))}</time></summary><div class="developer-log-detail"><div><span>問題</span><strong>${escapeHtml(log.question || "—")}</strong></div><div><span>正解</span><strong>${escapeHtml(log.correctAnswer || "—")}</strong></div><div><span>入力</span><strong>${escapeHtml(log.userAnswer || "（空欄）")}</strong></div><div><span>回答時間</span><strong>${escapeHtml(formatDuration(log.responseTimeMs))}</strong></div><div><span>累計挑戦</span><strong>${Math.max(0, Number(log.attemptCountForWord) || 0)}回</strong></div><div><span>モード</span><strong>${mode}</strong></div><div><span>問題形式</span><strong>${questionType}</strong></div></div></details>`;
+  }
+
+  function renderDeveloperAttempts(reset = false) {
+    if (reset) developerViewState.attemptVisibleCount = DEVELOPER_LOG_PAGE_SIZE;
+    const filtered = developerViewState.attemptLogs.filter(attemptMatchesFilters);
+    const visible = filtered.slice(0, developerViewState.attemptVisibleCount);
+    $("#developerAttemptList").innerHTML = visible.length
+      ? visible.map(attemptLogMarkup).join("")
+      : '<p class="developer-empty">該当する試行履歴はありません。</p>';
+    setDeveloperText("#developerAttemptCount", `${filtered.length}件中 ${visible.length}件を表示`);
+    $("#developerAttemptLoadMore").hidden = visible.length >= filtered.length;
+  }
+
+  const DEVELOPER_EVENT_LABELS = Object.freeze({
+    word_added: "単語追加",
+    word_updated: "単語編集",
+    word_deleted: "単語削除",
+    bulk_added: "一括追加",
+    imported: "インポート",
+    restored: "バックアップ復元"
+  });
+
+  function eventLogMarkup(log) {
+    const label = DEVELOPER_EVENT_LABELS[log.type] || log.type || "操作";
+    const count = Number.isFinite(log.count) ? `<span>${Math.max(0, log.count)}件</span>` : "";
+    return `<article class="developer-event-row"><div><strong>${escapeHtml(label)}</strong><time>${escapeHtml(formatDateTime(log.occurredAt))}</time></div><div><span>${escapeHtml(log.word || "—")}</span>${count}</div></article>`;
+  }
+
+  function renderDeveloperEvents(reset = false) {
+    if (reset) developerViewState.eventVisibleCount = DEVELOPER_LOG_PAGE_SIZE;
+    const visible = developerViewState.eventLogs.slice(0, developerViewState.eventVisibleCount);
+    $("#developerEventList").innerHTML = visible.length
+      ? visible.map(eventLogMarkup).join("")
+      : '<p class="developer-empty">単語操作履歴はありません。</p>';
+    setDeveloperText("#developerEventCount", `${developerViewState.eventLogs.length}件中 ${visible.length}件を表示`);
+    $("#developerEventLoadMore").hidden = visible.length >= developerViewState.eventLogs.length;
+  }
+
+  async function refreshDeveloperConsole() {
+    try {
+      await developerLogQueue;
+      await ensureDeveloperTrackingBaseline();
+      await loadDeveloperConsoleData();
+      renderDeveloperOverview();
+      renderDeveloperGrowth();
+      renderDeveloperAttempts(true);
+      renderDeveloperEvents(true);
+      setDeveloperText("#developerDataNotice", "LOCAL DATA READY");
+    } catch (error) {
+      console.warn("開発者画面を更新できない:", error);
+      setDeveloperText("#developerDataNotice", "LOCAL DATA UNAVAILABLE");
+    }
+  }
+
+  async function clearAllDeveloperLogs() {
+    const db = await openDatabase();
+    const tx = db.transaction([ATTEMPT_LOG_STORE, EVENT_LOG_STORE, DAILY_STATS_STORE], "readwrite");
+    tx.objectStore(ATTEMPT_LOG_STORE).clear();
+    tx.objectStore(EVENT_LOG_STORE).clear();
+    tx.objectStore(DAILY_STATS_STORE).clear();
+    await transactionComplete(tx);
+    await ensureDeveloperTrackingBaseline(true);
+  }
+
+  async function exportDeveloperLogs() {
+    await loadDeveloperConsoleData();
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      attemptLogs: developerViewState.attemptLogs,
+      eventLogs: developerViewState.eventLogs,
+      dailyStats: developerViewState.dailyStats,
+      metrics: developerViewState.metrics
+    };
+    downloadFile(
+      `word-study-developer-logs-${localDateString()}.json`,
+      JSON.stringify(payload, null, 2),
+      "application/json"
+    );
+    setDeveloperText("#developerDataNotice", "LOG EXPORT COMPLETE");
+  }
+
+  function bindDeveloperEvents() {
+    $("#developerExitBtn")?.addEventListener("click", closeDeveloperConsole);
+    $("#developerGrowthPeriod")?.addEventListener("change", renderDeveloperGrowth);
+    $("#developerAttemptResultFilter")?.addEventListener("change", () => renderDeveloperAttempts(true));
+    $("#developerAttemptModeFilter")?.addEventListener("change", () => renderDeveloperAttempts(true));
+    $("#developerAttemptSearch")?.addEventListener("input", () => renderDeveloperAttempts(true));
+    $("#developerAttemptLoadMore")?.addEventListener("click", () => {
+      developerViewState.attemptVisibleCount += DEVELOPER_LOG_PAGE_SIZE;
+      renderDeveloperAttempts();
+    });
+    $("#developerEventLoadMore")?.addEventListener("click", () => {
+      developerViewState.eventVisibleCount += DEVELOPER_LOG_PAGE_SIZE;
+      renderDeveloperEvents();
+    });
+    $("#developerExportLogsBtn")?.addEventListener("click", () => {
+      exportDeveloperLogs().catch((error) => {
+        console.warn(error);
+        setDeveloperText("#developerDataNotice", "LOG EXPORT FAILED");
+      });
+    });
+    $("#developerClearAttemptsBtn")?.addEventListener("click", async () => {
+      if (!confirm("問題試行履歴だけを削除しますか？\n単語帳本体と通常の学習データは削除されません。")) return;
+      await clearDeveloperStore(ATTEMPT_LOG_STORE);
+      await refreshDeveloperConsole();
+      setDeveloperText("#developerDataNotice", "ATTEMPT LOGS CLEARED");
+    });
+    $("#developerClearEventsBtn")?.addEventListener("click", async () => {
+      if (!confirm("単語操作履歴だけを削除しますか？\n登録単語は削除されません。")) return;
+      await clearDeveloperStore(EVENT_LOG_STORE);
+      await refreshDeveloperConsole();
+      setDeveloperText("#developerDataNotice", "EVENT LOGS CLEARED");
+    });
+    $("#developerClearAllLogsBtn")?.addEventListener("click", async () => {
+      if (!confirm("すべての統計ログを削除しますか？\n単語帳本体・設定・通常の学習記録は削除されません。")) return;
+      await clearAllDeveloperLogs();
+      await refreshDeveloperConsole();
+      setDeveloperText("#developerDataNotice", "ALL DEVELOPER LOGS CLEARED");
+    });
+  }
+
   function refreshAll() {
     updateSummary();
     renderWordList();
@@ -1767,6 +2461,7 @@
       if (!imported.length && parsed.words.length) throw new Error("有効な単語がない");
       if (!confirm(`バックアップ内の${imported.length}語で現在のデータを上書きするか？`)) return;
 
+      const previousWordCount = state.words.length;
       state.words = imported;
       state.currentQuizWordId = null;
       state.meta = {
@@ -1778,6 +2473,12 @@
         storagePersisted: state.meta.storagePersisted
       };
       await saveData({ changeAmount: 0 });
+      recordWordEvent("restored", {
+        word: file.name,
+        count: imported.length,
+        addedCount: imported.length,
+        deletedCount: previousWordCount
+      });
       showNotice($("#dataNotice"), `${imported.length}語を読み込んだ。`, "success");
     } catch (error) {
       console.error(error);
@@ -2284,7 +2985,9 @@
   }
 
   function bindEvents() {
+    bindDeveloperEvents();
     window.addEventListener("minna-account", handleAccountEvent);
+    document.addEventListener("keydown", handleQuizKeyboardNavigation);
     document.addEventListener("click", (event) => {
       const speakButton = event.target.closest("[data-speak]");
       if (speakButton) {
@@ -2394,6 +3097,7 @@
       let skipped = 0;
       const spellWarnings = [];
       const duplicateItems = [];
+      const addedWords = [];
       for (const line of lines) {
         const parsed = parseBulkLine(line);
         if (!parsed) {
@@ -2420,8 +3124,20 @@
         if (duplicates.sameEnglish.length) {
           duplicateItems.push({ english, japanese, type: "same", existing: duplicates.sameEnglish.map((word) => word.japanese) });
         }
-        const result = addWord(english, japanese);
-        result.ok ? added++ : skipped++;
+        const result = addWord(english, japanese, { logEvent: false });
+        if (result.ok) {
+          added++;
+          addedWords.push(english);
+        } else {
+          skipped++;
+        }
+      }
+      if (added) {
+        recordWordEvent("bulk_added", {
+          word: addedWords.slice(0, 5).join("、"),
+          count: added,
+          addedCount: added
+        });
       }
       if (duplicateItems.length) renderBulkDuplicateReport(duplicateItems);
       const warningText = spellWarnings.length ? `、${spellWarnings.length}語はスペル確認待ち` : "";
@@ -2533,6 +3249,12 @@
         state.words = state.words.filter((item) => item.id !== word.id);
         resetQuizSession();
         saveData();
+        recordWordEvent("word_deleted", {
+          wordId: word.id,
+          word: word.english,
+          count: 1,
+          deletedCount: 1
+        });
         showNotice($("#listNotice"), `「${word.english}」を削除した。`, "success");
       }
       if (button.dataset.action === "edit") {
@@ -2567,6 +3289,11 @@
       word.english = english;
       word.japanese = japanese;
       saveData();
+      recordWordEvent("word_updated", {
+        wordId: word.id,
+        word: previousEnglish === english ? english : `${previousEnglish} → ${english}`,
+        count: 1
+      });
       $("#editDialog").close();
       showNotice($("#listNotice"), `「${previousEnglish}」を更新した。`, "success");
     });
@@ -2596,6 +3323,7 @@
       if (analysisResizeTimer) clearTimeout(analysisResizeTimer);
       analysisResizeTimer = setTimeout(() => {
         if ($("#panel-analysis")?.classList.contains("active")) renderAnalysis();
+        if ($("#developerConsole")?.hidden === false) renderDeveloperGrowth();
       }, 120);
     });
 
@@ -2605,10 +3333,16 @@
         return;
       }
       if (!confirm("登録単語と全学習記録を削除する。この操作は元に戻せない。")) return;
+      const deletedCount = state.words.length;
       state.words = [];
       state.meta.answerHistory = [];
       resetQuizSession();
       saveData();
+      recordWordEvent("word_deleted", {
+        word: "全単語",
+        count: deletedCount,
+        deletedCount
+      });
       showNotice($("#dataNotice"), "全データを削除した。", "success");
     });
   }
@@ -2619,6 +3353,7 @@
     registerServiceWorker();
     await loadData();
     dataLoaded = true;
+    queueDeveloperLog(() => ensureDeveloperTrackingBaseline());
     refreshAll();
     renderAccountSettings();
     await requestPersistentStorage(false);
@@ -2626,7 +3361,8 @@
     startNotificationScheduler();
     await checkScheduledNotifications({ catchUp: true });
     switchTab(location.hash === "#today" ? "today" : "today");
-    maybeShowAccountPrompt();
+    if (developerModeSessionEnabled()) await activateDeveloperMode(false);
+    else maybeShowAccountPrompt();
 
     if (state.meta.migratedFromLocalStorage) {
       showNotice($("#dataNotice"), "旧版のlocalStorageデータをIndexedDBへ自動移行した。", "success");
